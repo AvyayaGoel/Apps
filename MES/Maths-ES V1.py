@@ -2,6 +2,7 @@ import re
 import time
 
 import ttkbootstrap as tb
+from sympy import sympify
 from ttkbootstrap.constants import *
 from ttkbootstrap.widgets.scrolled import ScrolledText
 
@@ -15,7 +16,27 @@ def tokenize(expr):
 
 MES_HISTORY = [
     {
-        "version": "V1.02 (Latest)",
+        "version": "V1.06",
+        "date": "2025-12-25",
+        "notes": [
+            "Feature: Implemented 'Hard Guard' logic to prevent execution of unsupported symbols.",
+            "Feature: Enhanced Error Explainer to specifically identify illegal characters (%, $, etc.).",
+            "UI: Improved Entry box behavior to lock red state on invalid execution attempts."
+        ]
+    },
+    {
+        "version": "V1.05 (Latest)",
+        "date": "2025-12-25",
+        "notes": [
+            "Feature: Real-time Syntax Validation (Green/Yellow/Red Entry box).",
+            "Feature: Smart Error Explainer (Specific feedback for syntax errors).",
+            "Feature: Copy result button.",
+            "Fixed Bug: Unary Minus support for negative numbers in parentheses.",
+            "Fixed Bug: Cleaned math string artifacts (A+-B becomes A-B)."
+        ]
+    },
+    {
+        "version": "V1.02",
         "date": "2025-12-25",
         "notes": [
             "Added 'Clear All' functionality for session resets.",
@@ -62,11 +83,31 @@ class Node:
         return self.left is None and self.right is None
 
     def to_string(self):
-        if self.is_number(): return self.value
-        l, r = self.left.to_string(), self.right.to_string()
-        if not self.left.is_number() and value_order[self.left.value] < value_order[self.value]: l = f"({l})"
-        if not self.right.is_number() and value_order[self.right.value] < value_order[self.value]: r = f"({r})"
+        if self.is_number():
+            return self.value
+
+        l = self.left.to_string()
+        r = self.right.to_string()
+
+        # Parentheses for precedence
+        if not self.left.is_number() and value_order[self.left.value] < value_order[self.value]:
+            l = f"({l})"
+        if not self.right.is_number() and value_order[self.right.value] < value_order[self.value]:
+            r = f"({r})"
+
+        # ---- CLEAN +- MESS ----
+        if self.value == '+' and r.startswith('-'):
+            return f"{l}-{r[1:]}"  # A + -B → A - B
+
+        if self.value == '-' and r.startswith('-'):
+            return f"{l}+{r[1:]}"  # A - -B → A + B
+
+        # ---- FORCE PARENTHESES FOR NEGATIVES IN */^ ----
+        if self.value in ('*', '/', '^', '**') and r.startswith('-'):
+            r = f"({r})"
+
         return f"{l}{self.value}{r}"
+
 
 def preprocess_sqrt(tokens):
     new_tokens = []
@@ -76,24 +117,39 @@ def preprocess_sqrt(tokens):
             # Logic: sqrt(X) -> (X)**0.5
             # We assume sqrt is always followed by (content)
             new_tokens.append('(')
-            i += 1 # skip 'sqrt'
+            i += 1  # skip 'sqrt'
             # We will append the content and close it with )**0.5
             # This is a simple version, but works for sqrt(number)
-        elif i > 0 and tokens[i-1] == 'sqrt':
-             # This part is handled by the loop logic
-             pass
+        elif i > 0 and tokens[i - 1] == 'sqrt':
+            # This part is handled by the loop logic
+            pass
         new_tokens.append(tokens[i])
-        if i > 1 and tokens[i] == ')' and tokens[i-len(tokens)] == '(': # very basic check
-             # This needs careful index tracking
-             pass
+        if i > 1 and tokens[i] == ')' and tokens[i - len(tokens)] == '(':  # very basic check
+            # This needs careful index tracking
+            pass
         i += 1
     return new_tokens
 
 
 def infix_to_postfix(tokens):
     output, ops = [], []
-    for t in tokens:
-        if t.replace('.', '', 1).isdigit():
+    # FIX: Track if we just saw an operator or '(' to identify negative numbers
+    prev_token = "("
+
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+
+        # Handle Negatives: If '-' follows '(' or is at the start
+        if t == '-' and (prev_token == '(' or prev_token in value_order):
+            # Peek at the next token to see if it's a number
+            if i + 1 < len(tokens) and tokens[i + 1].replace('.', '', 1).isdigit():
+                output.append("-" + tokens[i + 1])  # Join '-' with the number
+                prev_token = tokens[i + 1]
+                i += 2  # Skip the '-' and the number
+                continue
+
+        if t.replace('.', '', 1).replace('-', '', 1).isdigit():
             output.append(t)
         elif t in value_order:
             while (ops and ops[-1] in value_order and ((value_order[ops[-1]] > value_order[t]) or (
@@ -105,8 +161,27 @@ def infix_to_postfix(tokens):
         elif t == ')':
             while ops and ops[-1] != '(': output.append(ops.pop())
             ops.pop()
+
+        prev_token = t
+        i += 1
+
     while ops: output.append(ops.pop())
     return output
+
+
+def fix_unary_minus(tokens):
+    fixed = []
+    prev = None
+
+    for t in tokens:
+        if t == '-' and (prev is None or prev in value_order or prev == '('):
+            fixed.append('0')
+            fixed.append('-')
+        else:
+            fixed.append(t)
+        prev = t
+
+    return fixed
 
 
 def postfix_to_ast(postfix):
@@ -151,11 +226,27 @@ def format_step_string(raw_str):
     return re.sub(r'\d+\.\d+', round_match, raw_str)
 
 
+def explain_error(expr, err):
+    if expr.count('(') != expr.count(')'):
+        return "Unmatched parentheses"
+
+    if re.search(r'[+\-*/^]{2,}', expr.replace('**', '')):
+        return "Two operators in a row"
+
+    if expr.strip()[-1] in '+-*/^':
+        return "Expression ends with an operator"
+
+    if 'division by zero' in str(err).lower():
+        return "Division by zero is not allowed"
+
+    return "Invalid mathematical structure"
+
+
 # --- GUI CLASS ---
 class MES:
     def __init__(self, window):
         self.root = window
-        self.root.title("Maths Ex Solver V1.02")
+        self.root.title("Maths Ex Solver V1.06")
         self.root.geometry("800x600")
 
         # Main Container with padding
@@ -177,10 +268,10 @@ class MES:
         )
         self.log_btn.pack(side=TOP, padx=5)
 
-
         # Expression Input
         self.log_win = None
         self.expression = tb.StringVar()
+        self.expression.trace_add("write", self.validate_live)  # Tracks every keystroke
         self.e = tb.Entry(self.mainframe, textvariable=self.expression, font=("Consolas", 18), justify="right")
         self.e.pack(fill=X, pady=10)
         self.e.bind("<Return>", lambda e: self.evaluate())
@@ -202,15 +293,20 @@ class MES:
 
         self.clear_btn = tb.Button(self.btn_frame, text="Clear All", bootstyle="danger",
                                    command=self.clear_fields, width=15)
-        self.clear_btn.pack(side=LEFT)
-
-        #self.toggle_btn = tb.Button(self.btn_frame, text="FUNCTIONS", bootstyle="info",
-                                   # command=self.toggle_special_functions, width=15)
-        #self.toggle_btn.pack(side=LEFT, padx=10, expand=YES)
+        self.clear_btn.pack(side=LEFT, padx=(0, 5))
 
         self.eval_btn = tb.Button(self.btn_frame, text="Evaluate", bootstyle="success",
                                   command=self.evaluate, width=30)
-        self.eval_btn.pack(side=RIGHT)
+        self.eval_btn.pack(side=LEFT, fill=X, expand=YES, padx=(5, 0))
+
+        # Copy Button (ChatGPT Style)
+        self.copy_btn = tb.Button(
+            self.mainframe,
+            text="📋",
+            bootstyle="info-link",
+            command=self.copy_to_clipboard
+        )
+        self.copy_btn.pack(anchor=E)
 
         # Output Area (ScrolledText handles the window overflow)
         self.explanation = ScrolledText(self.mainframe, font=("Consolas", 13), height=12,
@@ -245,6 +341,37 @@ class MES:
             # Pack it specifically BEFORE the explanation text box
             self.special_func_frame.pack(after=self.btn_frame, fill=X, pady=5)
 
+    def validate_live(self, *args):
+        expr_text = self.expression.get()
+        if not expr_text:
+            self.e.configure(bootstyle="default")
+            return
+
+            # 1. Immediate Red if illegal characters are typed
+        if not re.match(r'^[\d.+\-*/()^\s]*$', expr_text):
+            self.e.configure(bootstyle="danger")
+            return
+
+        try:
+            sympify(expr_text.replace('^', '**'))
+            self.e.configure(bootstyle="success")
+        except:
+            if expr_text[-1] in "+-*/(^" or expr_text.count('(') > expr_text.count(')'):
+                self.e.configure(bootstyle="warning")
+            else:
+                self.e.configure(bootstyle="danger")
+
+    def copy_to_clipboard(self):
+        # Pulls the final answer from the explanation text
+        full_text = self.explanation.text.get("1.0", "end")
+        if "Final Answer =" in full_text:
+            answer = full_text.split('=')[-1].strip()
+            self.root.clipboard_clear()
+            self.root.clipboard_append(answer)
+            # Visual feedback on the button
+            self.copy_btn.config(text="✅ Copied", bootstyle="success-link")
+            self.root.after(2000, lambda: self.copy_btn.config(text="📋", bootstyle="info-link"))
+
     def evaluate(self):
         # NEW: Collapse the row when evaluation starts
         self.special_func_frame.pack_forget()
@@ -254,8 +381,28 @@ class MES:
         self.explanation.text.config(state="normal")
         self.explanation.text.delete('1.0', END)
 
+        illegal_chars = re.findall(r'[^0-9.+\-*/()^ ]', expr.replace('**', ''))
+        if illegal_chars:
+            unique_illegal = list(set(illegal_chars))
+            msg = f"Invalid Symbol(s): {', '.join(unique_illegal)}\nThese characters are not supported by the MES engine."
+            self.explanation.text.insert(END, f"⚠️ ERROR: {msg}", "danger")
+            self.e.config(bootstyle="danger")
+            self.explanation.text.config(state="disabled")
+            return
+
+        # 2. Check if the math is actually valid before running the loop
+        try:
+            sympify(expr.replace('^', '**'))
+        except Exception as e:
+            msg = explain_error(expr, e)
+            self.explanation.text.insert(END, f"❌ INVALID MATH: {msg}", "danger")
+            self.e.config(bootstyle="danger")
+            self.explanation.text.config(state="disabled")
+            return
+
         try:
             tokens = tokenize(expr)
+            tokens = fix_unary_minus(tokens)
             postfix = infix_to_postfix(tokens)
             ast_root = postfix_to_ast(postfix)
 
@@ -276,7 +423,10 @@ class MES:
 
             self.explanation.text.insert(END, f"\nFinal Answer = {display_str}", "success")
         except Exception as e:
-            self.explanation.text.insert(END, f"\nError: Invalid Expression", "danger")
+            msg = explain_error(expr, e)
+            self.explanation.text.insert(END, f"\nError: {msg}", "danger")
+            self.e.config(bootstyle="danger")
+            self.e.select_range(0, END)
 
         self.explanation.text.config(state="disabled")
 
