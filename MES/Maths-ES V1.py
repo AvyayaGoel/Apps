@@ -2,7 +2,7 @@ import re
 import time
 
 import ttkbootstrap as tb
-from sympy import sympify
+from sympy import sympify, Rational
 from ttkbootstrap.constants import *
 from ttkbootstrap.widgets.scrolled import ScrolledText
 
@@ -131,6 +131,43 @@ def preprocess_sqrt(tokens):
     return new_tokens
 
 
+def get_steps(expr_str):
+    perc = Rational(1, 100)
+    context = {"perc": perc}
+
+    # 1. Use evaluate=False so 33/3 stays as 33/3
+    safe_expr = expr_str.replace('%', '*perc')
+    current_expr = sympify(safe_expr, locals=context, evaluate=False)
+
+    steps = []
+    # Add the initial expression
+    steps.append(format_step_string(str(current_expr).replace('*perc', '%')))
+
+    # 2. The Slow-Mo Loop
+    for _ in range(10):
+        # We use deep=False to prevent SymPy from solving the whole tree at once
+        # We also use .evalf() if we want it to resolve fractions to decimals mid-way
+        next_expr = current_expr.doit(deep=False).evalf(4)
+
+        # If it's a number, we might want to force a final decimal evaluation
+        if next_expr.is_number and not next_expr.is_Float:
+            next_expr = next_expr.evalf(4)
+
+        current_str = str(next_expr)
+
+        # Check if we actually made progress
+        if current_str == str(current_expr):
+            break
+
+        steps.append(format_step_string(current_str.replace('*perc', '%')))
+        current_expr = next_expr
+
+        if current_expr.is_number:
+            break
+
+    return steps
+
+
 def infix_to_postfix(tokens):
     output, ops = [], []
     # FIX: Track if we just saw an operator or '(' to identify negative numbers
@@ -223,7 +260,11 @@ def format_step_string(raw_str):
         val = float(match.group())
         return f"{val:.2f}".rstrip('0').rstrip('.')
 
-    return re.sub(r'\d+\.\d+', round_match, raw_str)
+    # 1. Clean up the power and multiplication symbols first
+    clean = raw_str.replace('**', '^').replace('*', '')
+
+    # 2. Apply the regex to the CLEANED string, not the raw one
+    return re.sub(r'\d+\.\d+', round_match, clean)
 
 
 def explain_error(expr, err):

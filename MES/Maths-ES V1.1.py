@@ -1,245 +1,244 @@
+import re
+import time
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 from ttkbootstrap.widgets.scrolled import ScrolledText
-import time
 from sympy import sympify
+
 from Maths_Engine import *
 
-
+# ─────────────────────────────────────────────
+# VERSION HISTORY
+# ─────────────────────────────────────────────
 MES_HISTORY = [
-
     {
         "version": "V1.06",
         "date": "2025-12-25",
         "notes": [
-            "Feature: Implemented 'Hard Guard' logic to prevent execution of unsupported symbols.",
-            "Feature: Enhanced Error Explainer to specifically identify illegal characters (%, $, etc.).",
-            "UI: Improved Entry box behavior to lock red state on invalid execution attempts."
-        ]
+            "Hard Guard for unsupported symbols",
+            "Improved error explainer",
+            "Locked red state on invalid execution",
+        ],
     },
     {
         "version": "V1.05",
         "date": "2025-12-25",
         "notes": [
-            "Feature: Real-time Syntax Validation (Green/Yellow/Red Entry box).",
-            "Feature: Smart Error Explainer (Specific feedback for syntax errors).",
-            "Feature: Copy result button.",
-            "Fixed Bug: Unary Minus support for negative numbers in parentheses.",
-            "Fixed Bug: Cleaned math string artifacts (A+-B becomes A-B)."
-        ]
+            "Live syntax validation",
+            "Copy result button",
+            "Unary minus fixes",
+        ],
     },
     {
         "version": "V1.02",
         "date": "2025-12-25",
         "notes": [
-            "Added 'Clear All' functionality for session resets.",
-            "Integrated ScrolledText for persistent step-by-step output.",
-            "Fixed floating-point artifacts using display formatting.",
-            "UI polish and font alignment improvements."
-        ]
+            "Clear All",
+            "Scrolled output",
+            "Float cleanup",
+        ],
     },
     {
         "version": "V1.00",
         "date": "2025-12-24",
         "notes": [
-            "Initial UI Launch using ttkbootstrap.",
-            "Implemented AST (Abstract Syntax Tree) engine for complex parsing.",
-            "Transitioned from Terminal to Graphical Interface."
-        ]
+            "Initial GUI launch",
+            "AST-based solver",
+        ],
     },
-    {
-        "version": "V0.50 (Alpha)",
-        "date": "2025-12-24",
-        "notes": [
-            "Added Power support (**, ^) to the engine.",
-            "BODMAS priority logic refinement.",
-            "Bug fixes for division and negative number handling."
-        ]
-    },
-    {
-        "version": "V0.01 (Legacy)",
-        "date": "2025-12-24",
-        "notes": [
-            "Initial Terminal-based prototype.",
-            "Basic tokenization engine.",
-            "Supported fundamental operators: +, -, *, /"
-        ]
-    }
 ]
 
-
+# ─────────────────────────────────────────────
+# MAIN APPLICATION
+# ─────────────────────────────────────────────
 class MES:
-    def __init__(self, window):
+    def __init__(self, window: tb.Window):
         self.root = window
-        self.root.title("Maths Ex Solver V1.1")
+        self.root.title("Maths Ex Solver V1.1.1")
         self.root.geometry("800x600")
 
-        # Main Container with padding
+        self.log_win = None
+
+        self._build_ui()
+
+    # ───────────────────────── UI SETUP ─────────────────────────
+    def _build_ui(self):
         self.mainframe = tb.Frame(self.root, padding=20)
         self.mainframe.pack(fill=BOTH, expand=YES)
 
-        # Title
-        tb.Label(self.mainframe,
-                 text="Expression Solver",
-                 font=("Courier New", 24, "bold")
-                 ).pack(pady=(0, 20))
-
-        # Add this in your __init__ or es_mainframe
-        self.log_btn = tb.Button(
+        tb.Label(
             self.mainframe,
-            text="📜Update Log",
-            bootstyle="link",  # "Link" style makes it look like a subtle footer button
-            command=self.show_update_log_window
-        )
-        self.log_btn.pack(side=TOP, padx=5)
+            text="Expression Solver",
+            font=("Courier New", 24, "bold"),
+        ).pack(pady=(0, 15))
 
-        # Expression Input
-        self.log_win = None
+        tb.Button(
+            self.mainframe,
+            text="📜 Update Log",
+            bootstyle="link",
+            command=self.show_update_log_window,
+        ).pack()
+
         self.expression = tb.StringVar()
-        self.expression.trace_add("write", self.validate_live)  # Tracks every keystroke
-        self.e = tb.Entry(self.mainframe, textvariable=self.expression, font=("Consolas", 18), justify="right")
-        self.e.pack(fill=X, pady=10)
-        self.e.bind("<Return>", lambda e: self.evaluate())
+        self.expression.trace_add("write", self.validate_live)
 
-        # Button Row
-        self.btn_frame = tb.Frame(self.mainframe)
-        self.btn_frame.pack(fill=X, pady=10)
+        self.entry = tb.Entry(
+            self.mainframe,
+            textvariable=self.expression,
+            font=("Consolas", 18),
+            justify="right",
+        )
+        self.entry.pack(fill=X, pady=10)
+        self.entry.bind("<Return>", lambda e: self.evaluate())
 
-        self.clear_btn = tb.Button(self.btn_frame, text="Clear All", bootstyle="danger",
-                                   command=self.clear_fields, width=15)
-        self.clear_btn.pack(side=LEFT, padx=(0, 5))
+        self._build_buttons()
+        self._build_output()
 
-        self.eval_btn = tb.Button(self.btn_frame, text="Evaluate", bootstyle="success",
-                                  command=self.evaluate, width=30)
-        self.eval_btn.pack(side=LEFT, fill=X, expand=YES, padx=(5, 0))
+    def _build_buttons(self):
+        frame = tb.Frame(self.mainframe)
+        frame.pack(fill=X, pady=10)
 
-        # Copy Button (ChatGPT Style)
+        tb.Button(
+            frame,
+            text="Clear All",
+            bootstyle="danger",
+            width=15,
+            command=self.clear_fields,
+        ).pack(side=LEFT)
+
+        tb.Button(
+            frame,
+            text="Evaluate",
+            bootstyle="success",
+            width=30,
+            command=self.evaluate,
+        ).pack(side=LEFT, fill=X, expand=YES, padx=(5, 0))
+
         self.copy_btn = tb.Button(
             self.mainframe,
             text="📋",
             bootstyle="info-link",
-            command=self.copy_to_clipboard
+            command=self.copy_to_clipboard,
         )
         self.copy_btn.pack(anchor=E)
 
-        # Output Area (ScrolledText handles the window overflow)
-        self.explanation = ScrolledText(self.mainframe, font=("Consolas", 13), height=12,
-                                        autohide=True, bootstyle="secondary")
+    def _build_output(self):
+        self.explanation = ScrolledText(
+            self.mainframe,
+            font=("Consolas", 13),
+            height=12,
+            autohide=True,
+            bootstyle="secondary",
+        )
         self.explanation.pack(fill=BOTH, expand=YES, pady=10)
-        self.explanation.text.config(state="disabled")  # Initial state
-
-    def clear_fields(self):
-        self.expression.set("")
-        self.explanation.text.config(state="normal")
-        self.explanation.text.delete('1.0', END)
         self.explanation.text.config(state="disabled")
 
-    def toggle_special_functions(self):
-        # If it's already showing, hide it. Otherwise, show it.
-        if self.special_func_frame.winfo_viewable():
-            self.special_func_frame.pack_forget()
-        else:
-            # Pack it specifically BEFORE the explanation text box
-            self.special_func_frame.pack(after=self.btn_frame, fill=X, pady=5)
+    # ───────────────────────── UI ACTIONS ─────────────────────────
+    def clear_fields(self):
+        self.expression.set("")
+        self._clear_output()
 
-    def validate_live(self, *args):
-        expr_text = self.expression.get()
-        if not expr_text:
-            self.e.configure(bootstyle="default")
-            return
-
-            # 1. Immediate Red if illegal characters are typed
-        if not re.match(r'^[\d.+\-*/()^\s]*$', expr_text):
-            self.e.configure(bootstyle="danger")
-            return
-
-        try:
-            sympify(expr_text.replace('^', '**'))
-            self.e.configure(bootstyle="success")
-        except:
-            if expr_text[-1] in "+-*/(^" or expr_text.count('(') > expr_text.count(')'):
-                self.e.configure(bootstyle="warning")
-            else:
-                self.e.configure(bootstyle="danger")
+    def _clear_output(self):
+        self.explanation.text.config(state="normal")
+        self.explanation.text.delete("1.0", END)
+        self.explanation.text.config(state="disabled")
 
     def copy_to_clipboard(self):
-        full_text = self.explanation.text.get("1.0", "end")
-        if "Final Answer =" in full_text:
-            answer = full_text.split('=')[-1].strip()
-            self.root.clipboard_clear()
-            self.root.clipboard_append(answer)
-            # Visual feedback on the button
-            self.copy_btn.config(text="✅ Copied", bootstyle="success-link")
-            self.root.after(2000, lambda: self.copy_btn.config(text="📋", bootstyle="info-link"))
-
-    def evaluate(self):
-        # NEW: Collapse the row when evaluation starts
-        self.special_func_frame.pack_forget()
-        expr = self.expression.get()
-        if not expr.strip(): return
-
-        self.explanation.text.config(state="normal")
-        self.explanation.text.delete('1.0', END)
-
-        illegal_chars = re.findall(r'[^0-9.+\-*/()^]', expr.replace('**', ''))
-        if illegal_chars:
-            unique_illegal = list(set(illegal_chars))
-            msg = f"Invalid Symbol(s): {', '.join(unique_illegal)}\nThese characters are not supported by the MES engine."
-            self.explanation.text.insert(END, f"⚠️ ERROR: {msg}", "danger")
-            self.e.config(bootstyle="danger")
-            self.explanation.text.config(state="disabled")
+        text = self.explanation.text.get("1.0", END)
+        if "Final Answer =" not in text:
             return
 
-        # 2. Check if the math is actually valid before running the loop
+        answer = text.split("=")[-1].strip()
+        self.root.clipboard_clear()
+        self.root.clipboard_append(answer)
+
+        self.copy_btn.config(text="✅ Copied", bootstyle="success-link")
+        self.root.after(
+            1500,
+            lambda: self.copy_btn.config(text="📋", bootstyle="info-link"),
+        )
+
+    # ───────────────────────── VALIDATION ─────────────────────────
+    def validate_live(self, *_):
+        expr = self.expression.get()
+        if not expr:
+            self.entry.configure(bootstyle="default")
+            return
+
+        if not re.fullmatch(r"[\d+\-*/().^ ]*", expr):
+            self.entry.configure(bootstyle="danger")
+            return
 
         try:
-            sympify(expr.replace('^', '**'))
-        except Exception as e:
-            msg = explain_error(expr, e)
-            self.explanation.text.insert(END, f"❌ INVALID MATH: {msg},\n{e}", "danger")
-            self.e.config(bootstyle="danger")
-            self.explanation.text.config(state="disabled")
+            sympify(expr.replace("^", "**"))
+            self.entry.configure(bootstyle="success")
+        except Exception:
+            if expr[-1] in "+-*/(^":
+                self.entry.configure(bootstyle="warning")
+            else:
+                self.entry.configure(bootstyle="danger")
+
+    # ───────────────────────── SOLVER ─────────────────────────
+    def evaluate(self):
+        expr = self.expression.get().strip()
+        if not expr:
             return
 
+        self._clear_output()
+        self.explanation.text.config(state="normal")
+
+        try:
+            sympify(expr.replace("^", "**"))
+        except Exception as e:
+            msg = explain_error(expr, e)
+            self._write_error(msg)
+            return
 
         try:
             tokens = tokenize(expr)
-            tokens = fix_unary_minus(tokens)
             postfix = infix_to_postfix(tokens)
-            ast_root = postfix_to_ast(postfix)
+            ast = postfix_to_ast(postfix)
 
-            n = 0
-            # Apply formatting to the display string
-            display_str = format_step_string(ast_root.to_string())
-            self.explanation.text.insert(END, f"Step {n}: {display_str}\n", "step")
+            step = 0
+            self._write_step(step, ast)
 
-            while not ast_root.is_number():
-                reduce_one_step(ast_root)
-                n += 1
-                display_str = format_step_string(ast_root.to_string())
-                self.explanation.text.insert(END, f"Step {n}: {display_str}\n")
-
-                self.explanation.text.see(END)
+            while not ast.is_number():
+                if not reduce_one_step(ast):
+                    break
+                step += 1
+                self._write_step(step, ast)
                 self.root.update()
-                time.sleep(0.2)
+                time.sleep(0.3)
 
-            self.explanation.text.insert(END, f"\nFinal Answer = {display_str}", "success")
+            self.explanation.text.insert(
+                END,
+                f"\nFinal Answer = {format_step_string(ast.to_string())}",
+                "success",
+            )
+
         except Exception as e:
             msg = explain_error(expr, e)
-            self.explanation.text.insert(END, f"\nError: {msg}", "danger")
-            self.e.config(bootstyle="danger")
-            self.e.select_range(0, END)
+            self._write_error(msg)
 
         self.explanation.text.config(state="disabled")
 
+    def _write_step(self, step, ast):
+        text = format_step_string(ast.to_string())
+        self.explanation.text.insert(END, f"Step {step}: {text}\n")
+        self.explanation.text.see(END)
+
+    def _write_error(self, msg):
+        self.explanation.text.insert(END, f"❌ Error: {msg}")
+        self.entry.configure(bootstyle="danger")
+        self.explanation.text.config(state="disabled")
+
+    # ───────────────────────── LOG WINDOW ─────────────────────────
     def show_update_log_window(self):
-        # 1. Check if the window already exists and is 'alive'
         if self.log_win is not None and self.log_win.winfo_exists():
             self.log_win.lift()  # Bring it to the top
             self.log_win.focus_force()  # Give it keyboard focus
             return
 
-        # 2. If it doesn't exist, create it
         self.log_win = tb.Toplevel(title="MES Update History")
         self.log_win.geometry("500x400")
         self.log_win.position_center()
@@ -271,7 +270,7 @@ class MES:
 if __name__ == "__main__":
     try:
         win = tb.Window(themename="calculator")
-        mes = MES(win)
+        MES(win)
         win.mainloop()
     except KeyboardInterrupt:
         pass
