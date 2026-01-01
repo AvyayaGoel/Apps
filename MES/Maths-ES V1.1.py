@@ -1,11 +1,12 @@
-import re
 import time
+
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
 from ttkbootstrap.widgets.scrolled import ScrolledText
-from sympy import sympify
-
+from sympy import simplify
 from Maths_Engine import *
+
+TRANSFORMATIONS = (standard_transformations + (implicit_multiplication_application,))
 
 # ─────────────────────────────────────────────
 # VERSION HISTORY
@@ -60,6 +61,29 @@ class MES:
         self.log_win = None
 
         self._build_ui()
+        self.explanation.text.tag_config(
+            "step",
+            font=("Consolas", 13),
+            foreground="#bbbbbb"
+        )
+
+        self.explanation.text.tag_config(
+            "highlight",
+            font=("Consolas", 13, "bold"),
+            foreground="#00bc8c"
+        )
+
+        self.explanation.text.tag_config(
+            "reason",
+            font=("Consolas", 11, "italic"),
+            foreground="#3498db"
+        )
+
+        self.explanation.text.tag_config(
+            "success",
+            font=("Consolas", 14, "bold"),
+            foreground="#2ecc71"
+        )
 
     # ───────────────────────── UI SETUP ─────────────────────────
     def _build_ui(self):
@@ -153,27 +177,29 @@ class MES:
         self.root.clipboard_append(answer)
 
         self.copy_btn.config(text="✅ Copied", bootstyle="success-link")
-        self.root.after(
-            1500,
-            lambda: self.copy_btn.config(text="📋", bootstyle="info-link"),
-        )
+        self.root.after(1500, self._reset_copy_button)
 
-    # ───────────────────────── VALIDATION ─────────────────────────
+    def _reset_copy_button(self):
+        self.copy_btn.config(text="📋", bootstyle="info-link")
+
     def validate_live(self, *_):
         expr = self.expression.get()
         if not expr:
             self.entry.configure(bootstyle="default")
             return
 
-        if not re.fullmatch(r"[\d+\-*/().^ ]*", expr):
+        # UPDATED REGEX: Added a-zA-Z to allow variables
+        if not re.fullmatch(r"[\d+\-*/().^ a-zA-Z]*", expr):
             self.entry.configure(bootstyle="danger")
             return
 
         try:
-            sympify(expr.replace("^", "**"))
+            # Use parse_expr with transformations so '21x' is valid
+            parse_expr(expr.replace("^", "**"), transformations=TRANSFORMATIONS)
             self.entry.configure(bootstyle="success")
         except Exception:
-            if expr[-1] in "+-*/(^":
+            # Check if it's just incomplete (ends in operator) or actually invalid
+            if expr and expr[-1] in "+-*/(^":
                 self.entry.configure(bootstyle="warning")
             else:
                 self.entry.configure(bootstyle="danger")
@@ -188,43 +214,105 @@ class MES:
         self.explanation.text.config(state="normal")
 
         try:
-            sympify(expr.replace("^", "**"))
-        except Exception as e:
-            msg = explain_error(expr, e)
-            self._write_error(msg)
-            return
-
-        try:
+            # ───── Build AST ─────
             tokens = tokenize(expr)
+            tokens = insert_implicit_multiplication(tokens)
             postfix = infix_to_postfix(tokens)
             ast = postfix_to_ast(postfix)
+            normalize_ast(ast)
 
+            if not ast:
+                raise ValueError("Invalid structure")
+
+            # ───── Step 0 ─────
             step = 0
-            self._write_step(step, ast)
+            self._write_step(step, ast, "Original expression", "step")
 
-            while not ast.is_number():
-                if not reduce_one_step(ast):
+            previous = ast.to_string()
+
+            # ───── Stepwise Reduction Loop ─────
+            while True:
+                changed, reason, kind = reduce_one_step(ast)
+                current = ast.to_string()
+
+                # Stop if nothing actually changed
+                if not changed or current == previous:
                     break
-                step += 1
-                self._write_step(step, ast)
-                self.root.update()
-                time.sleep(0.3)
 
-            self.explanation.text.insert(
-                END,
-                f"\nFinal Answer = {format_step_string(ast.to_string())}",
-                "success",
-            )
+                step += 1
+                self._write_step(step, ast, reason, kind)
+
+                previous = current
+
+                # Quadratic solving is terminal
+                if kind == "quadratic":
+                    break
+
+                self.root.update()
+                time.sleep(0.35)
+
+            # ───── Final Result ─────
+            self.explanation.text.insert(END, "\n")
+
+            if has_variables(expr):
+                # Symbolic result
+                res = solve_symbolic(expr)
+
+                final_expr = simplify(parse_expr(expr.replace("^", "**"), transformations=TRANSFORMATIONS))
+                self.explanation.text.insert(
+                    END,
+                    f"Final Result: {final_expr}\n",
+                    "success"
+                )
+
+                if "roots" in res:
+                    self.explanation.text.insert(
+                        END,
+                        f"Roots: {res['roots']}\n",
+                        "success"
+                    )
+            else:
+                # Numeric result
+                final_expr = simplify(parse_expr(expr.replace("^", "**"), transformations=TRANSFORMATIONS))
+                self.explanation.text.insert(
+                    END,
+                    f"Final Result: {final_expr}\n",
+                    "success"
+                )
+
 
         except Exception as e:
-            msg = explain_error(expr, e)
-            self._write_error(msg)
+            self._write_error(explain_error(expr, e))
 
         self.explanation.text.config(state="disabled")
 
-    def _write_step(self, step, ast):
-        text = format_step_string(ast.to_string())
-        self.explanation.text.insert(END, f"Step {step}: {text}\n")
+
+    def _write_step(self, step, ast, reason="", step_type=""):
+        """
+        Writes a single solution step with explanation and highlighting.
+        """
+
+        if not self.explanation or not self.explanation.text.winfo_exists():
+            return  # Prevent Tk crashes if widget is gone
+
+        expr = format_step_string(ast.to_string())
+
+        # ---- Step line ----
+        self.explanation.text.insert(
+            END,
+            f"Step {step}: {expr}\n",
+            ("step", step_type)
+        )
+
+        # ---- Explanation line ----
+        if reason:
+            self.explanation.text.insert(
+                END,
+                f"   ↳ {reason}\n",
+                "explain"
+            )
+
+        self.explanation.text.insert(END, "\n")
         self.explanation.text.see(END)
 
     def _write_error(self, msg):
