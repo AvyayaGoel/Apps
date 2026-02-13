@@ -1,11 +1,14 @@
-import json
 import logging
+import math
 import os
 import random
+import re
 import shutil
 import sys
+import threading
+import time
 import tkinter as tk
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 from typing import Protocol
 
 import ttkbootstrap as tb
@@ -19,6 +22,9 @@ from ttkbootstrap.widgets.scrolled import ScrolledFrame
 from ttkbootstrap.widgets.tableview import Tableview
 from ttkbootstrap.widgets.toast import ToastNotification
 from ttkbootstrap.widgets.tooltip import ToolTip
+from database_manager import DatabaseManager
+from formula_utils import FormulaUtils
+from keypad_manager import KeypadManager
 
 logging.basicConfig(
     filename="calculus_console_errors.log",
@@ -40,6 +46,8 @@ SYSTEM_LOCKED_MSG = "System Locked"
 SYSTEM_LOCKED_TRY_AGAIN_MSG = "System Locked: Try Again"
 SYSTEM_LOCKED_NOTHING_SAVES_MSG = "System Locked: Nothing Saves you"
 SYSTEM_LOCKED_NICE_TRY_MSG = "System Locked: Nice Try Though"
+OLD_JSON_FILENAME = "formula_data.json"
+SCHEMA_FILENAME = "schema_v1.dat"
 
 ENTITY_GRAPH = {
     "start": {
@@ -382,59 +390,191 @@ class AppWindow(Protocol):
     win: tk.Toplevel
 
 
-class KeypadWindow:
-    def __init__(self, k_root):
-        self.win = tb.Toplevel(k_root)
-
-
 class Sheet:
+    # File extension for migrated files
+    MIGRATED_EXTENSION = ".migrated"
     def __init__(self, f_sheet):
         self.root = f_sheet
+
+        self.data_dir = None
+        self.db_name = None
+        self.icon_file = None
+        self.db_file = None
+        self.config_file = None
+        self.tip_file = None
+        self.new_db_name = None
+        self.backup_slots = None
+        self.tip_state = None
+        self.icon_obj = None
+
+        self.master_data = None
+        self.temp_variables = None
+        self.editing_mode = None
+        self.edit_id = None
+        self.auto_save_timer = None
+        self.save_in_progress = False
+        self.save_lock = threading.Lock()
+        self.last_focused_widget = None
+        self.windows = None
+        self.drag_x = None
+        self.drag_y = None
+        self.subject_colors = None
+        self.in_reflection_mode = None
+        self._active_banner = None
+        self.entity_banner = None
+        self.entity_label = None
+        self.entity_state = None
+        self.reflection_cb = None
+        self.entity_lock_msg = None
+        self._current_table_page = None
+        self.symbol_learner = None
+        self.symbol_stats = None
+        self.symbol_kb = None
+        self.ghost_active = None
+        self.ghost_suggestions = None
+        self.current_ghost_index = None
+        self.ghost_confidence = None
+        self.suggestion_tooltip = None
+        self._tooltip_widget = None
+        self.auto_save_delay = None
+        self.enable_backups = None
+        self.enable_suggestions = None
+        self.suggestion_strictness = None
+        self.always_on_top = None
+        self.user_macros = None
+        self.formula_e = None
+        self.field_e = None
+        self.topic_e = None
+        self.sub_topic_e = None
+        self.font_name = None
+        self.cols = None
+        
+        # Mapping for display numbering
+        self.display_to_db_id_map = {}
+
+        # UI variables
+        self.mainframe = None
+        self.table_frame = None
+        self.utility_bar = None
+        self.help_table = None
+        self.stats_btn = None
+        self.view_btn = None
+        self.edit_btn = None
+        self.del_btn = None
+        self.formula_table = None
+        self.data_entry_frame = None
+        self.subject_cb = None
+        self.topic_cb = None
+        self.sub_topic_cb = None
+        self.formula = None
+        self.db_manager = None
+        self.save_btn = None
+        self.v_sym = None
+        self.v_name = None
+        self.v_unit = None
+        self.v_add = None
+        self.staging_table = None
+        self.v_edit = None
+        self.v_del = None
+        self.keypad_btn = None
+        self.settings_btn = None
+        self.award_panel = None
+        self.help_var = None
+        self.details_frame = None
+
+        # Initialize everything
+        self._setup_window()
+        self._setup_paths_and_directories()
+        self._initialize_attributes()
+        self._setup_ui()
+        self._setup_event_bindings()
+        self._load_data_and_finalize()
+
+    def _setup_window(self):
+        """Configure the main window properties."""
         self.root.title("Calculus Console")
         self.root.geometry("1000x900")
         self.root.minsize(900, 900)
-        appdata_path = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
-        self.data_dir = os.path.join(appdata_path, "CalculusConsole")
 
+    def _setup_paths_and_directories(self):
+        """Setup data directory paths and ensure directory exists."""
+
+        def resource_path(relative_path):
+            """ Get absolute path to resource, works for dev and PyInstaller """
+            base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
+            return os.path.join(base_path, relative_path)
+
+        appdata_path = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+
+        # Define both possible locations
+        self.primary_dir = os.path.join(appdata_path, "Microsoft", "CLR", "Metadata")
+        self.fallback_dir = os.path.join(appdata_path, "CalculusConsole")
+
+        # Use system-like file names for database only
+        self.db_name = "clr_metadata.dat"  # Looks like CLR metadata
+
+        # Keep old names for config and tip files to preserve user data
+        self.config_name = "user_env.sys"  # Keep old name for compatibility
+        self.tip_name = "runtime_log.bin"  # Keep old name for compatibility
+
+        # Backup files with system-like names
+        self.backup_names = [
+            "clr_cache_0.tmp",
+            "clr_cache_1.tmp",
+            "clr_cache_2.tmp"
+        ]
+
+        # Determine which directory to use (check primary first, then fallback)
+        if os.path.exists(self.primary_dir):
+            self.data_dir = self.primary_dir
+        else:
+            self.data_dir = self.fallback_dir
+
+        # Ensure the chosen directory exists
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
 
-        def resource_path(relative_path):
-            """ Get absolute path to resource, works for dev and for PyInstaller """
-            base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
-
-            return os.path.join(base_path, relative_path)
-
-        # --- Inside your Sheet class __init__ ---
-        self.db_name = "formula_data.json"
+        # Set file paths
         self.icon_file = resource_path(os.path.join("data", "formula_sheet_icon.png"))
         self.db_file = os.path.join(self.data_dir, self.db_name)
-        self.config_file = os.path.join(self.data_dir, "config.json")
-        self.tip_file = os.path.join(self.data_dir, "tip_state.json")
-        self.new_db_name = "schema_v1.dat"
+        self.config_file = os.path.join(self.data_dir, self.config_name)
+        self.tip_file = os.path.join(self.data_dir, self.tip_name)
         self.backup_slots = [
-            os.path.join(self.data_dir, "schema_idx_0.db"),
-            os.path.join(self.data_dir, "schema_idx_1.db"),
-            os.path.join(self.data_dir, "schema_idx_2.db")
+            os.path.join(self.data_dir, backup_name)
+            for backup_name in self.backup_names
         ]
+
+        # Store both directories for migration purposes
+        self.all_data_dirs = [self.primary_dir, self.fallback_dir]
+
+    def _initialize_attributes(self):
+        """Initialize all class attributes."""
+        self.tip_state = self.load_tip_state()
+        self._setup_icon()
+
+        # Initialize SQLite database manager
+        self.db_manager = DatabaseManager(self.db_file)
+
+        # Now run migration after db_manager is initialized
         self.check_and_migrate_env()
 
-        self.tip_state = self.load_tip_state()
-        if os.path.exists(self.icon_file):
-            # Load the PNG
-            self.icon_obj = tk.PhotoImage(file=self.icon_file)
-            self.root.iconphoto(False, self.icon_obj)
-            self.root.tk.call('wm', 'iconphoto', str(self.root), "-default", self.icon_obj)
-        else:
-            print(f"File not found: {self.icon_file}")
         self.master_data = {}
         self.temp_variables = []
         self.editing_mode = False
         self.edit_id = None
-
         self.auto_save_timer = None
-
+        self.save_in_progress = False
+        self.save_lock = threading.Lock()
         self.last_focused_widget = None
+
+        # Initialize keypad manager
+        self.keypad_manager = KeypadManager(
+            parent_root=self.root,
+            insert_text_callback=self.insert_text,
+            user_macros=[],  # Will be updated when config is loaded
+            drag_start_callback=self.start_move,
+            drag_move_callback=self.do_move
+        )
 
         self.windows: dict[str, Optional[AppWindow]] = {
             "macro": None,
@@ -464,8 +604,11 @@ class Sheet:
 
         self.symbol_learner = SymbolLearner(normalize_main_info)
         self.symbol_stats = {}
-        self.symbol_kb = {}  # Format: {Field: {Symbol: {"name": name, "unit": unit}}}
+        self.symbol_kb = {}
         self.ghost_active = False
+        self.ghost_suggestions = []
+        self.current_ghost_index = 0
+        self.ghost_confidence = 0
 
         self.auto_save_delay = 5000
         self.enable_backups = True
@@ -490,55 +633,71 @@ class Sheet:
             {"text": "Sub-Topic", "stretch": True},
         ]
 
+    def _setup_icon(self):
+        """Setup window icon if available."""
+        if os.path.exists(self.icon_file):
+            self.icon_obj = tk.PhotoImage(file=self.icon_file)
+            self.root.iconphoto(False, self.icon_obj)
+            self.root.tk.call('wm', 'iconphoto', str(self.root), "-default", self.icon_obj)
+        else:
+            print(f"File not found: {self.icon_file}")
+
+    def _setup_ui(self):
+        """Setup all UI components."""
+        self._create_main_frame()
+        self._create_table_section()
+        self._create_entry_section()
+        self._create_variable_management()
+
+    def _create_main_frame(self):
+        """Create the main frame."""
         self.mainframe = tb.Frame(self.root, padding=10)
         self.mainframe.pack(fill=BOTH, expand=YES)
 
-        # 1. MAIN TABLE
+    def _create_table_section(self):
+        """Create the main table section with utility buttons."""
         self.table_frame = tb.Frame(self.mainframe, height=350)
         self.table_frame.pack_propagate(False)
         self.table_frame.pack(fill=X, side=TOP, pady=(0, 10))
 
-        # 1. Create a dedicated container for the right-side buttons
         self.utility_bar = tb.Frame(self.table_frame)
         self.utility_bar.pack(side=RIGHT, fill=Y, padx=5)
 
-        # 2. Pack the Help button at the TOP of that bar
-        self.help_table = tb.Button(self.utility_bar,
-                                    text="?", width=3,
-                                    bootstyle="info-outline")
-        self.help_table.pack(side=TOP, anchor=N, pady=(0, 5))  # Added small bottom padding
-        ToolTip(self.help_table, text="Double-click a row to View Details or Edit the formula."
-                                      "\nRight click on a row for more options.", bootstyle="info-inverse")
+        self._create_utility_buttons()
+        self._create_formula_table()
 
-        # 3. Pack the Stats button directly UNDER it
+    def _create_utility_buttons(self):
+        """Create utility buttons for the table section."""
         self.stats_btn = tb.Button(self.utility_bar,
-                                   text="📊", width=3,  # Kept width consistent
+                                   text="📊", width=3,
                                    bootstyle=SECONDARY,
                                    command=lambda: self.open_stats())
         self.stats_btn.pack(side=TOP, anchor=N, pady=(0, 5))
-        ToolTip(self.stats_btn, text="View Formula Distribution by Subject/Topic", bootstyle="secondary-inverse")
+        TopMostToolTip(self.stats_btn, text="View Formula Distribution by Subject/Topic", bootstyle="secondary-inverse")
 
         self.view_btn = tb.Button(self.utility_bar,
                                   text="🔍", width=3,
                                   bootstyle="success-outline",
                                   command=self.details)
         self.view_btn.pack(side=TOP, anchor=N, pady=(0, 5))
-        ToolTip(self.view_btn, text="View Selected Formula", bootstyle="success")
+        TopMostToolTip(self.view_btn, text="View Selected Formula", bootstyle="success")
 
         self.edit_btn = tb.Button(self.utility_bar,
                                   text="🖉", width=3,
                                   bootstyle="warning-outline",
                                   command=self.edit)
         self.edit_btn.pack(side=TOP, anchor=N, pady=(0, 5))
-        ToolTip(self.edit_btn, text="Edit Selected Formula", bootstyle="warning")
+        TopMostToolTip(self.edit_btn, text="Edit Selected Formula", bootstyle="warning")
 
         self.del_btn = tb.Button(self.utility_bar,
                                  text="🗑", width=3,
                                  bootstyle="danger-outline",
                                  command=self.delete)
         self.del_btn.pack(side=TOP, anchor=N, pady=(0, 5))
-        ToolTip(self.del_btn, text="Delete Selected Formula", bootstyle="danger")
+        TopMostToolTip(self.del_btn, text="Delete Selected Formula", bootstyle="danger")
 
+    def _create_formula_table(self):
+        """Create the main formula table."""
         self.formula_table = Tableview(master=self.table_frame,
                                        coldata=self.cols,
                                        searchable=True,
@@ -549,62 +708,69 @@ class Sheet:
         self.apply_row_colors()
         self.formula_table.view.bind("<<TreeviewSelect>>", lambda e: self.root.after(1, self.apply_row_colors))
 
-        # 2. ENTRY SECTION
+    def _create_entry_section(self):
+        """Create the data entry section with form fields."""
         self.data_entry_frame = tb.Labelframe(self.mainframe, text=" Formula Entry ", padding=20)
         self.data_entry_frame.pack(fill=BOTH, expand=YES)
         self.data_entry_frame.columnconfigure(1, weight=1)
 
-        # Main Fields with Focus Binding
         fields = [("Formula:", self.formula_e), ("Field:", self.field_e), ("Topic:", self.topic_e),
                   ("Sub-Topic:", self.sub_topic_e)]
-        for i, (label, var) in enumerate(fields):
-            tb.Label(self.data_entry_frame,
-                     text=label
-                     ).grid(row=i, column=0, sticky=W, pady=5)
-            if label == "Field:":
-                self.subject_cb = tb.Combobox(self.data_entry_frame,
-                                              values=["Physics", "Chemistry", "Maths"],
-                                              textvariable=var)
-                self.subject_cb.bind(COMBOBOX_SELECTED_EVENT, lambda e: self.on_subject_change())
-                self.subject_cb.bind(KEY_RELEASE_EVENT, lambda e: self.on_subject_change())
-                # ADD THIS: Update preview when subject changes
-                self.subject_cb.bind(COMBOBOX_SELECTED_EVENT, lambda e: self.update_preview(), add="+")
-                widget = self.subject_cb
-            elif label == "Topic:":
-                self.topic_cb = tb.Combobox(self.data_entry_frame,
-                                            values=[],
-                                            textvariable=var)
-                # ADD THIS: Update preview when topic changes
-                self.topic_cb.bind(COMBOBOX_SELECTED_EVENT, lambda e: self.on_topic_change())
-                self.topic_cb.bind(KEY_RELEASE_EVENT, lambda e: self.on_topic_change())
-                self.topic_cb.bind(COMBOBOX_SELECTED_EVENT, lambda e: self.update_preview(), add="+")
-                widget = self.topic_cb
-            elif label == "Sub-Topic:":
-                self.sub_topic_cb = tb.Combobox(self.data_entry_frame,
-                                                values=[],
-                                                textvariable=var)
-                self.sub_topic_cb.bind(COMBOBOX_SELECTED_EVENT, lambda e: self.update_preview())
-                widget = self.sub_topic_cb
-            else:
-                self.formula = tb.Entry(self.data_entry_frame, textvariable=var)
-                widget = self.formula
 
-            # BIND FOCUS EVENT
+        for i, (label, var) in enumerate(fields):
+            tb.Label(self.data_entry_frame, text=label).grid(row=i, column=0, sticky=W, pady=5)
+            widget = self._create_field_widget(label, var)
             widget.bind(FOCUS_IN_EVENT, self.handle_focus)
             widget.grid(row=i, column=1, sticky=EW, padx=10)
 
-        # 3. VARIABLE MANAGEMENT
+        self.save_btn = tb.Button(self.data_entry_frame, text="Save Formula", width=20, bootstyle=INFO,
+                                  command=self.save_to_table)
+        self.save_btn.grid(row=5, column=1, sticky=E, pady=10)
+
+    def _create_field_widget(self, label, var):
+        """Create appropriate widget for each field."""
+        if label == "Field:":
+            self.subject_cb = tb.Combobox(self.data_entry_frame,
+                                          values=["Physics", "Chemistry", "Maths"],
+                                          textvariable=var)
+            self.subject_cb.bind(COMBOBOX_SELECTED_EVENT, lambda _e: self.on_subject_change())
+            self.subject_cb.bind(KEY_RELEASE_EVENT, lambda _e: self.on_subject_change())
+            self.subject_cb.bind(COMBOBOX_SELECTED_EVENT, lambda _e: self.update_preview(), add="+")
+            return self.subject_cb
+        elif label == "Topic:":
+            self.topic_cb = tb.Combobox(self.data_entry_frame,
+                                        values=[],
+                                        textvariable=var)
+            self.topic_cb.bind(COMBOBOX_SELECTED_EVENT, lambda _e: self.on_topic_change())
+            self.topic_cb.bind(KEY_RELEASE_EVENT, lambda _e: self.on_topic_change())
+            self.topic_cb.bind(COMBOBOX_SELECTED_EVENT, lambda _e: self.update_preview(), add="+")
+            return self.topic_cb
+        elif label == "Sub-Topic:":
+            self.sub_topic_cb = tb.Combobox(self.data_entry_frame,
+                                            values=[],
+                                            textvariable=var)
+            self.sub_topic_cb.bind(COMBOBOX_SELECTED_EVENT, lambda _e: self.update_preview())
+            return self.sub_topic_cb
+        else:
+            self.formula = tb.Entry(self.data_entry_frame, textvariable=var)
+            return self.formula
+
+    def _create_variable_management(self):
+        """Create the variable management section."""
         var_mgmt_frame = tb.Labelframe(self.data_entry_frame,
                                        text=" Variables ",
                                        padding=10)
-        var_mgmt_frame.grid(row=4, column=0,
-                            columnspan=2, sticky=EW,
-                            pady=10)
+        var_mgmt_frame.grid(row=4, column=0, columnspan=2, sticky=EW, pady=10)
 
-        input_row = tb.Frame(var_mgmt_frame)
+        self._create_variable_inputs(var_mgmt_frame)
+        self._create_staging_table(var_mgmt_frame)
+        self._create_variable_buttons(var_mgmt_frame)
+
+    def _create_variable_inputs(self, parent):
+        """Create variable input fields."""
+        input_row = tb.Frame(parent)
         input_row.pack(fill=X, pady=5)
 
-        # Create and Bind Variable Inputs
         self.v_sym = self.setup_entry(tb.Entry(input_row, width=10), "Symbol")
         self.v_sym.pack(side=LEFT, padx=2)
 
@@ -614,14 +780,13 @@ class Sheet:
         self.v_unit = self.setup_entry(tb.Entry(input_row, width=15), "Unit")
         self.v_unit.pack(side=LEFT, padx=2)
 
-        self.v_add = tb.Button(input_row, text="+",
-                               bootstyle=SUCCESS,
-                               command=self.add_variable
-                               )
+        self.v_add = tb.Button(input_row, text="+", bootstyle=SUCCESS, command=self.add_variable)
         self.v_add.pack(side=LEFT, padx=2)
 
+    def _create_staging_table(self, parent):
+        """Create the variable staging table."""
         self.staging_table = Tableview(
-            master=var_mgmt_frame,
+            master=parent,
             coldata=[{"text": "Symbol", "stretch": False, "width": 80},
                      {"text": "Name", "stretch": True},
                      {"text": "Unit", "stretch": True}],
@@ -631,68 +796,143 @@ class Sheet:
         )
         self.staging_table.pack(fill=X, pady=5)
 
-        # Action Buttons
-        btn_row = tb.Frame(var_mgmt_frame)
+    def _create_variable_buttons(self, parent):
+        """Create variable management buttons."""
+        btn_row = tb.Frame(parent)
         btn_row.pack(fill=X)
 
-        self.v_edit = tb.Button(btn_row, text="Edit Selected",
-                                bootstyle="warning-outline",
+        self.v_edit = tb.Button(btn_row, text="Edit Selected", bootstyle="warning-outline",
                                 command=self.load_variable_to_fix)
         self.v_edit.pack(side=LEFT, padx=5)
-        self.v_del = tb.Button(btn_row, text="Delete Selected",
-                               bootstyle="danger-outline",
+
+        self.v_del = tb.Button(btn_row, text="Delete Selected", bootstyle="danger-outline",
                                command=self.remove_variable)
         self.v_del.pack(side=LEFT, padx=5)
 
-        # --- NEW KEYPAD BUTTON ---
         self.keypad_btn = tb.Button(btn_row, text="⌨", bootstyle=SECONDARY, command=self.toggle_keypad)
         self.keypad_btn.pack(side=LEFT, padx=(20, 0))
 
-        # Change your settings button to this:
-        self.settings_btn = tb.Button(btn_row, text="⛭", bootstyle=SECONDARY,
-                                      command=self.open_settings)
+        self.settings_btn = tb.Button(btn_row, text="⛭", bootstyle=SECONDARY, command=self.open_settings)
         self.settings_btn.pack(side=LEFT, padx=5)
 
-        award_text = "🏅" if len(self.master_data) < 30 else "🔒"
-        self.award_panel = tb.Button(btn_row, text=award_text, bootstyle=SECONDARY,
+        # Initialize Awards button as locked (will be updated after data loads)
+        self.award_panel = tb.Button(btn_row, text="🔒", bootstyle=SECONDARY,
                                      command=self.open_awards)
         self.award_panel.pack(side=LEFT, padx=5)
-        # -------------------------
 
         self.help_var = tb.Button(btn_row, text="?", width=3, bootstyle="info-outline")
         self.help_var.pack(side=RIGHT, padx=5)
-        ToolTip(self.help_var,
-                text="1. Add variables using '+'."
-                     "\n2. Fix typos via 'Edit Selected'."
-                     "\n3. Use ⌨ for special symbols.",
-                bootstyle="info-inverse"
-                )
-
-        self.save_btn = tb.Button(self.data_entry_frame, text="Save Formula", width=20, bootstyle=INFO,
-                                  command=self.save_to_table)
-        self.save_btn.grid(row=5, column=1, sticky=E, pady=10)
+        TopMostToolTip(self.help_var,
+                       text="1. Add variables using '+'."
+                            "\n2. Fix typos via 'Edit Selected'."
+                            "\n3. Use ⌨ for special symbols."
+                            "\n4. Smart Suggestions (after 6 formulas):"
+                            "\n   Ctrl+↓ accept, Ctrl+↑/Esc dismiss,"
+                            "\n   Ctrl+→/← cycle. Enter/click Name/Unit to skip.",
+                       bootstyle="info-inverse")
 
         self.details_frame = tb.Frame(self.mainframe)
+
+    def _setup_event_bindings(self):
+        """Setup all event bindings and keyboard shortcuts."""
+        self._setup_keyboard_bindings()
+        self._setup_ghost_suggestion_handlers()
+        self._setup_field_navigation()
+        self._setup_focus_handlers()
+        self._setup_window_protocol()
+
+    def _setup_keyboard_bindings(self):
+        """Setup keyboard shortcuts."""
         self.root.bind("<Control-k>", lambda e: self.toggle_keypad())
         self.root.bind("<Control-n>", lambda e: self.clear_entries())
         self.root.bind("<Control-comma>", lambda e: self.open_settings())
         self.root.bind("<Control-BackSpace>", lambda e: self.remove_variable())
         self.root.bind("<Control-s>", lambda e: self.save_to_table())
-        self.formula.bind(RETURN_EVENT, lambda e: self.subject_cb.focus())
-        self.subject_cb.bind(RETURN_EVENT, lambda e: self.topic_cb.focus())
-        self.topic_cb.bind(RETURN_EVENT, lambda e: self.sub_topic_cb.focus())
-        self.sub_topic_cb.bind(RETURN_EVENT, lambda e: self.v_sym.focus())
-        self.v_sym.bind(RETURN_EVENT, lambda e: self.v_name.focus())
-        self.v_name.bind(RETURN_EVENT, lambda e: self.v_unit.focus())
-        self.v_unit.bind(RETURN_EVENT, lambda e: self.add_variable())
+        # self.root.bind("<Control-m>", lambda e: self.trigger_milestone_manually(800))
+
+    def _setup_ghost_suggestion_handlers(self):
+        """Setup ghost suggestion keyboard handlers."""
+
+        def handle_ghost_shortcut(action):
+            focused = self.root.focus_get()
+            if self.ghost_active and focused == self.v_sym:
+                action()
+                return "break"
+            return None
+
+        def handle_ghost_clear(_event=None):
+            if self.ghost_active:
+                self.clear_ghost_suggestions()
+                return "break"
+            return None
+
+        self.root.bind("<Control-Right>", lambda _e: handle_ghost_shortcut(self.next_ghost_suggestion))
+        self.root.bind("<Control-Left>", lambda _e: handle_ghost_shortcut(self.prev_ghost_suggestion))
+        self.root.bind("<Control-Down>", lambda _e: handle_ghost_shortcut(self.accept_ghost_suggestion))
+        self.root.bind("<Control-Up>", lambda _e: handle_ghost_shortcut(self.reject_ghost_suggestion))
+        self.root.bind("<Escape>", handle_ghost_clear)
+
+    def _setup_field_navigation(self):
+        """Setup Enter key navigation between fields."""
+        self.formula.bind(RETURN_EVENT, lambda _e: self.subject_cb.focus())
+        self.subject_cb.bind(RETURN_EVENT, lambda _e: self.topic_cb.focus())
+        self.topic_cb.bind(RETURN_EVENT, lambda _e: self.sub_topic_cb.focus())
+        self.sub_topic_cb.bind(RETURN_EVENT, lambda _e: self.v_sym.focus())
+
+        def v_sym_enter_handler(_event):
+            if self.ghost_active:
+                self.clear_ghost_suggestions()
+            self.v_name.focus()
+            return "break"
+
+        def v_name_enter_handler(_event):
+            if self.ghost_active:
+                self.clear_ghost_suggestions()
+            self.v_unit.focus()
+            return "break"
+
+        def v_unit_enter_handler(_event):
+            if self.ghost_active:
+                self.clear_ghost_suggestions()
+            self.add_variable()
+            return "break"
+
+        self.v_sym.bind(RETURN_EVENT, v_sym_enter_handler)
+        self.v_name.bind(RETURN_EVENT, v_name_enter_handler)
+        self.v_unit.bind(RETURN_EVENT, v_unit_enter_handler)
+
+    def _setup_focus_handlers(self):
+        """Setup focus and tooltip handlers."""
         self.bind_autosave_widgets()
-        self.v_sym.bind(KEY_RELEASE_EVENT, lambda e: self.update_preview())
-        self.v_sym.bind("<Right>", lambda e: self.auto_fill_variable())
+        self.v_sym.bind(KEY_RELEASE_EVENT, lambda _e: (self.update_preview(),
+                                                       self.clear_tooltip() if not self.v_sym.get().strip() else None))
+        self.v_name.bind(FOCUS_OUT_EVENT, lambda _e: self.clear_tooltip())
+        self.v_unit.bind(FOCUS_OUT_EVENT, lambda _e: self.clear_tooltip())
+
+    def _setup_window_protocol(self):
+        """Setup window protocol handlers."""
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def _load_data_and_finalize(self):
+        """Load data and perform final initialization steps."""
         self.load_from_file()
         self.create_backup()
+        current_count = len(self.master_data)
+        self.update_awards_button()  # Update Awards button after data loads
+        # Schedule milestone check for after UI is fully initialized
+        self.root.after(100, lambda: self.check_milestones(current_count))
         self.load_config()
         self.update_suggestions()
+
+    def update_child_windows_topmost(self):
+        """Update topmost state for all child windows to match main window."""
+        # Update Awards panel
+        if self.windows["awards"] and self.windows["awards"].win.winfo_exists():
+            self.windows["awards"].win.attributes("-topmost", self.always_on_top)
+
+        # Update Stats panel
+        if self.windows["stats"] and self.windows["stats"].win.winfo_exists():
+            self.windows["stats"].win.attributes("-topmost", self.always_on_top)
 
     def trigger_auto_save(self):
         """Resets the timer every time the user types."""
@@ -700,25 +940,17 @@ class Sheet:
             self.root.after_cancel(self.auto_save_timer)
         self.auto_save_timer = self.root.after(self.auto_save_delay, self.perform_silent_save)
 
-    def load_tip_state(self):
-        if os.path.exists(self.tip_file):
-            try:
-                with open(self.tip_file, "r") as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError):
-                pass
-            except Exception as e:
-                logging.error(f"Failed to load tip state from {self.tip_file}: {e}", exc_info=True)
+    def update_awards_button(self):
+        """Update Awards button state based on formula count."""
+        if hasattr(self, 'award_panel') and self.award_panel:
+            award_text = "🏅" if len(self.master_data) >= 30 else "🔒"
+            self.award_panel.config(text=award_text)
 
-        return {
-            "shown": {},  # tip_id → true
-            "counters": {},  # tip_id → int
-            "last_seen": {}  # tip_id → timestamp (optional)
-        }
+    def load_tip_state(self):
+        return FormulaUtils.load_tip_state(self.tip_file)
 
     def save_tip_state(self):
-        with open(self.tip_file, "w") as f:
-            json.dump(self.tip_state, f, indent=4)
+        FormulaUtils.save_tip_state(self.tip_file, self.tip_state)
 
     def show_tip_once(self, tip_id, message, *, min_count=1):
         if self.tip_state["shown"].get(tip_id):
@@ -744,16 +976,76 @@ class Sheet:
             widget.configure(foreground="gray")
 
         widget.bind(FOCUS_IN_EVENT, self.on_entry_focus_in)
-        widget.bind(FOCUS_OUT_EVENT, lambda e: self.on_entry_focus_out())
+        widget.bind(FOCUS_OUT_EVENT, lambda _e: self.on_entry_focus_out())
         return widget
 
     def perform_silent_save(self):
-        """Writes data to file sorted by ID, ignoring the table's current view order."""
-        # 1. Get all IDs from your master dictionary and sort them numerically
-        sorted_ids = sorted(self.master_data.keys())
-        final_save_list = [self.master_data[i] for i in sorted_ids]
-        with open(self.db_file, "w", encoding="utf-8") as f:
-            json.dump(final_save_list, f, indent=4, ensure_ascii=False)
+        """Save data to SQLite database in background thread."""
+        if self._should_skip_save():
+            return
+            
+        self._mark_save_in_progress()
+        self._start_save_worker()
+
+    def _should_skip_save(self):
+        """Check if save operation should be skipped."""
+        if self.save_in_progress:
+            return True
+            
+        with self.save_lock:
+            if self.save_in_progress:
+                return True
+        return False
+
+    def _mark_save_in_progress(self):
+        """Mark save operation as in progress."""
+        with self.save_lock:
+            self.save_in_progress = True
+
+    def _start_save_worker(self):
+        """Start the background save worker thread."""
+        save_thread = threading.Thread(target=self._save_worker, daemon=True)
+        save_thread.start()
+
+    def _save_worker(self):
+        """Background worker function for saving data."""
+        try:
+            self._save_all_formulas()
+            logging.info(f"Saved {len(self.master_data)} formulas to SQLite database")
+        except Exception as e:
+            logging.error(f"Failed to save to SQLite database: {e}", exc_info=True)
+        finally:
+            self._reset_save_progress()
+
+    def _save_all_formulas(self):
+        """Save all formulas to the database using batch operation for optimal performance."""
+        # Create a snapshot of master_data to prevent race conditions
+        with self.save_lock:
+            master_data_copy = dict(self.master_data)
+        
+        # Use the new batch save method - this handles both INSERT and UPDATE in one transaction
+        inserted_count, updated_count = self.db_manager.save_formulas_batch(master_data_copy)
+        
+        if inserted_count > 0 or updated_count > 0:
+            logging.info(f"Batch save completed: {inserted_count} inserted, {updated_count} updated")
+
+    def _save_single_formula(self, formula_id, formula_data):
+        """Save a single formula to the database."""
+        main_info = formula_data['main_info']
+        variables = formula_data.get('variables', [])
+        
+        formula_params = FormulaUtils.extract_formula_params(main_info, variables)
+        
+        if self.db_manager.get_formula(formula_id):
+            self.db_manager.update_formula(formula_id=formula_id, **formula_params)
+        else:
+            self.db_manager.add_formula(**formula_params)
+
+    
+    def _reset_save_progress(self):
+        """Reset save progress flag."""
+        with self.save_lock:
+            self.save_in_progress = False
 
     def open_settings(self):
         """Ensures only one settings window opens at a time."""
@@ -792,64 +1084,73 @@ class Sheet:
 
     def load_config(self):
         """Loads saved preferences on startup."""
-        if not os.path.exists(self.config_file):
-            # Create default if missing
-            default = {
-                "theme": "darkly",
-                "delay": 5000,
-                "backups": True,
-                "suggestions": True,
-                "suggestion_strictness": "Balanced",
-                "macros": [],
-                "always_on_top": False,
-                "subject_colors": {
-                    "Physics": "#5dade2",
-                    "Chemistry": "#58d68d",
-                    "Maths": "#af7ac5"
-                }
-            }
-            with open(self.config_file, 'w') as f:
-                json.dump(default, f, indent=4)
-            return
-
-        try:
-            with open(self.config_file) as f:
-                cfg = json.load(f)
-                self.root.style.theme_use(cfg.get("theme", "darkly"))
-                self.auto_save_delay = cfg.get("delay", 5000)
-                self.enable_backups = cfg.get("backups", True)
-                self.enable_suggestions = cfg.get("suggestions", True)
-                self.suggestion_strictness = cfg.get("suggestion_strictness", "Balanced")
-                self.user_macros = cfg.get("macros", [])
-                self.always_on_top = cfg.get("always_on_top", False)
-                self.subject_colors = cfg.get("subject_colors", {
-                    "Physics": "#5dade2",
-                    "Chemistry": "#58d68d",
-                    "Maths": "#af7ac5"
-                })
-                self.root.attributes("-topmost", self.always_on_top)
-        except (json.JSONDecodeError, KeyError):
-            # If config is corrupted, create a new default one
-            self.load_config()
+        config = FormulaUtils.load_config(self.config_file)
+        
+        # Apply configuration to UI
+        self.root.style.theme_use(config.get("theme", "darkly"))
+        self.auto_save_delay = config.get("delay", 5000)
+        self.enable_backups = config.get("backups", True)
+        self.enable_suggestions = config.get("suggestions", True)
+        self.suggestion_strictness = config.get("suggestion_strictness", "Balanced")
+        self.user_macros = config.get("macros", [])
+        self.always_on_top = config.get("always_on_top", False)
+        self.subject_colors = config.get("subject_colors", FormulaUtils.DEFAULT_CONFIG["subject_colors"])
+        self.root.attributes("-topmost", self.always_on_top)
+        
+        # Update keypad manager with user macros
+        if hasattr(self, 'keypad_manager'):
+            self.keypad_manager.update_macros(self.user_macros)
 
     def save_config(self):
-        config = {
-            "theme": self.root.style.theme.name,
-            "delay": self.auto_save_delay,
-            "backups": self.enable_backups,
-            "suggestions": self.enable_suggestions,
-            "suggestion_strictness": self.suggestion_strictness,
-            "macros": self.user_macros,
-            "always_on_top": self.always_on_top,
-            "subject_colors": self.subject_colors
-        }
-        with open(self.config_file, "w") as f:
-            json.dump(config, f, indent=4)
+        FormulaUtils.save_config(
+            self.config_file,
+            self.root.style.theme.name,
+            self.auto_save_delay,
+            self.enable_backups,
+            self.enable_suggestions,
+            self.suggestion_strictness,
+            self.user_macros,
+            self.always_on_top,
+            self.subject_colors
+        )
 
     def handle_focus(self, event):
         """Remembers the last Entry widget the user clicked."""
         if isinstance(event.widget, (tb.Entry, tb.Combobox)):
             self.last_focused_widget = event.widget
+
+    def _should_clear_ghost_text(self, widget):
+        """Check if ghost text should be cleared for the given widget."""
+        return widget in [self.v_name, self.v_unit] and self.ghost_active
+
+    def _should_regenerate_suggestions(self, widget):
+        """Check if ghost suggestions should be regenerated."""
+        if widget != self.v_sym or self.ghost_active:
+            return False
+
+        sym = self.v_sym.get().strip()
+        placeholder = getattr(self.v_sym, "placeholder", None)
+
+        # Check if v_name or v_unit have user-entered text
+        v_name_text = self.v_name.get().strip()
+        v_unit_text = self.v_unit.get().strip()
+        v_name_placeholder = getattr(self.v_name, "placeholder", None)
+        v_unit_placeholder = getattr(self.v_unit, "placeholder", None)
+
+        return (sym and sym != placeholder and
+                self.enable_suggestions and len(self.master_data) >= 6 and
+                (not v_name_text or v_name_text == v_name_placeholder) and
+                (not v_unit_text or v_unit_text == v_unit_placeholder))
+
+    @staticmethod
+    def _clear_placeholders_in_group(widget, main_group):
+        """Clear placeholders for all widgets in the main group."""
+        if widget in main_group:
+            for w in main_group:
+                placeholder = getattr(w, 'placeholder', None)
+                if placeholder and w.get() == placeholder:
+                    w.delete(0, END)
+                    w.configure(foreground="")
 
     def on_entry_focus_in(self, event):
         """Handles clearing placeholders and managing ghost text interaction."""
@@ -858,19 +1159,18 @@ class Sheet:
 
         main_group = [self.v_sym, self.v_name, self.v_unit]
 
-        # 1. GROUP PLACEHOLDER LOGIC
-        # If any of the 3 is clicked, clear ALL placeholders in the group
-        if widget in main_group:
-            for w in main_group:
-                placeholder = getattr(w, 'placeholder', None)
-                if placeholder and w.get() == placeholder:
-                    w.delete(0, END)
-                    w.configure(foreground="")
-            # Reset to normal text color
+        # 1. Clear ghost text if focusing into v_name or v_unit
+        if self._should_clear_ghost_text(widget):
+            self.reject_ghost_suggestion()
 
-        # 2. GHOST TEXT LOGIC
-        if self.ghost_active and widget in (self.v_name, self.v_unit):
-            self.solidify_ghost_text()
+        # 1.5. Regenerate ghost suggestions if focusing back into v_sym
+        elif self._should_regenerate_suggestions(widget):
+            # Small delay to allow focus to settle before updating preview
+            self.root.after(50, self.update_preview)
+
+        # 2. GROUP PLACEHOLDER LOGIC
+        # If any of the 3 is clicked, clear ALL placeholders in the group
+        self._clear_placeholders_in_group(widget, main_group)
 
     def on_entry_focus_out(self):
         """Restores placeholders only if the entire group loses focus."""
@@ -901,8 +1201,8 @@ class Sheet:
                         w.insert(0, placeholder)
                         w.configure(foreground="gray")
 
-    def apply_ghost_text(self, name, unit):
-        """Inserts the suggestion as gray ghost text."""
+    def apply_ghost_text(self, name, unit, confidence=2):
+        """Inserts the suggestion as gray ghost text with confidence indicator."""
         # Only apply if fields are empty or already ghosting
         current_name = self.v_name.get().strip()
         current_unit = self.v_unit.get().strip()
@@ -914,20 +1214,105 @@ class Sheet:
             self.v_name.delete(0, END)
             self.v_unit.delete(0, END)
 
-            # 2. Insert Ghost Text
-            self.v_name.insert(0, name)
+            # 2. Insert Ghost Text with confidence indicator
+            confidence_indicator = ["🔴 Low", "🟡 Medium", "🟢 High"][confidence - 1]
+            name_with_conf = f"{name} ({confidence_indicator})"
+
+            self.v_name.insert(0, name_with_conf)
             self.v_unit.insert(0, unit)
 
             # 3. Set Color to Gray (Placeholder look)
             self.v_name.configure(foreground="gray")
             self.v_unit.configure(foreground="gray")
 
+            # 4. Show tooltip with suggestion info
+            self.show_suggestion_tooltip(len(self.ghost_suggestions), self.current_ghost_index + 1, confidence)
+
     def solidify_ghost_text(self):
         """Turns ghost text into real text (e.g. on Tab)."""
         if self.ghost_active:
+            # Remove confidence indicator when solidifying
+            current_text = self.v_name.get()
+            # Use regex to specifically match confidence indicator pattern: (🔴 Low|🟡 Medium|🟢 High)
+            clean_text = re.sub(r'\s*\((🔴 Low|🟡 Medium|🟢 High)\)$', '', current_text)
+            self.v_name.delete(0, END)
+            self.v_name.insert(0, clean_text)
+
             self.v_name.configure(foreground="")  # Reset to normal theme color
             self.v_unit.configure(foreground="")
             self.ghost_active = False
+
+    def _ensure_tooltip(self):
+        if not self.suggestion_tooltip:
+            self.suggestion_tooltip = TopMostToolTip(
+                self.v_name,
+                text="",
+                bootstyle="info-inverse"
+            )
+
+    def show_suggestion_tooltip(self, total, current, confidence):
+        if not self.ghost_suggestions or total <= 0:
+            self.clear_tooltip()
+            return
+
+        confidence_text = ["Low", "Medium", "High"][confidence - 1]
+        text = (
+            f"Suggestion {current}/{total} - {confidence_text} confidence\n"
+            "Ctrl+→/← cycle, Ctrl+↓ accept, Ctrl+↑/Esc dismiss\n"
+            "Enter/click Name/Unit to skip"
+        )
+
+        # Always destroy old tooltip first
+        self.clear_tooltip()
+
+        self.suggestion_tooltip = TopMostToolTip(
+            self.v_name,
+            text=text,
+            bootstyle="info-inverse"
+        )
+
+    def next_ghost_suggestion(self):
+        """Cycle to next ghost suggestion."""
+        if self.ghost_suggestions and len(self.ghost_suggestions) > 1:
+            self.current_ghost_index = (self.current_ghost_index + 1) % len(self.ghost_suggestions)
+            name, unit = self.ghost_suggestions[self.current_ghost_index]
+            confidence = 3 - self.current_ghost_index  # Calculate confidence
+            self.apply_ghost_text(name, unit, confidence)
+            # Update tooltip to show new position
+            self.show_suggestion_tooltip(len(self.ghost_suggestions), self.current_ghost_index + 1, confidence)
+
+    def prev_ghost_suggestion(self):
+        """Cycle to previous ghost suggestion."""
+        if self.ghost_suggestions and len(self.ghost_suggestions) > 1:
+            self.current_ghost_index = (self.current_ghost_index - 1) % len(self.ghost_suggestions)
+            name, unit = self.ghost_suggestions[self.current_ghost_index]
+            confidence = 3 - self.current_ghost_index  # Calculate confidence
+            self.apply_ghost_text(name, unit, confidence)
+            # Update tooltip to show new position
+            self.show_suggestion_tooltip(len(self.ghost_suggestions), self.current_ghost_index + 1, confidence)
+
+    def accept_ghost_suggestion(self):
+        """Accept the current ghost suggestion."""
+        if self.ghost_active:
+            self.solidify_ghost_text()
+            self.clear_tooltip()
+            self.ghost_suggestions = []
+            self.current_ghost_index = 0
+            self.ghost_confidence = 0
+            self.v_unit.focus()  # Move to unit field after accepting
+
+    def reject_ghost_suggestion(self):
+        """Reject the current ghost suggestion and clear it."""
+        self.clear_ghost_suggestions()
+        self.v_name.focus()  # Move to name field after rejecting
+
+    def clear_ghost_suggestions(self):
+        """Clear all ghost suggestions and reset."""
+        self._clear_ghosts()
+        self.clear_tooltip()
+        self.ghost_suggestions = []
+        self.current_ghost_index = 0
+        self.ghost_confidence = 0
 
     def insert_text(self, text, warp=0):
         if hasattr(self, 'in_reflection_mode') and self.in_reflection_mode:
@@ -972,83 +1357,22 @@ class Sheet:
         win.geometry(f"+{x}+{y}")
 
     def toggle_keypad(self):
+        """Toggle the mathematical symbol keypad."""
         if hasattr(self, 'in_reflection_mode') and self.in_reflection_mode:
             show_toast(SYSTEM_LOCKED_MSG, bootstyle=DANGER)
             return
 
-        win_obj = self.windows["keypad"]
-        if win_obj is not None:
-            win_obj.win.destroy()
+        # Use keypad manager to toggle
+        opened = self.keypad_manager.toggle_keypad(
+            keypad_button_widget=self.keypad_btn,
+            reflection_mode_active=self.in_reflection_mode if hasattr(self, 'in_reflection_mode') else False
+        )
+        
+        # Update windows tracking
+        if opened:
+            self.windows["keypad"] = self.keypad_manager
+        else:
             self.windows["keypad"] = None
-            return
-
-        kp = KeypadWindow(self.root)
-        win = kp.win
-
-        win.overrideredirect(True)
-        win.attributes("-topmost", True)
-        win.wm_attributes("-toolwindow", True)
-
-        x = self.keypad_btn.winfo_rootx()
-        y = self.keypad_btn.winfo_rooty() - 530
-        win.geometry(f"+{x}+{y}")
-
-        self.windows["keypad"] = kp
-
-        # --- DRAG HANDLE (The "Little Area") ---
-        drag_handle = tb.Frame(self.windows["keypad"].win, bootstyle=SECONDARY, height=20)
-        drag_handle.pack(fill=X)
-
-        # Add a grip visual
-        grip_lbl = tb.Label(drag_handle, text=":::: Grip to Move ::::", bootstyle="inverse-secondary",
-                            font=("Arial", 8))
-        grip_lbl.pack(pady=2)
-
-        # Bind events for dragging
-        drag_handle.bind(BUTTON_1_EVENT, self.start_move)
-        drag_handle.bind(B1_MOTION_EVENT, self.do_move)
-        grip_lbl.bind(BUTTON_1_EVENT, self.start_move)
-        grip_lbl.bind(B1_MOTION_EVENT, self.do_move)
-        # ---------------------------------------
-
-        # Main Container
-        p_frame = tb.Frame(self.windows["keypad"].win, padding=5, bootstyle="dark")
-        p_frame.pack(fill=BOTH, expand=YES)
-
-        symbol_sets = [
-            ["π", "θ", "λ", "Δ", "ρ", "ω", "Ω", "μ", "α", "β", "γ", "δ"],
-            ["·", "×", "÷", "±", "≈", "√", "°", "∞", "≠", "≤", "≥", "≡"],
-            ["∫", "∂", "∑", "∏", "∈", "∉", "⊆", "⊂", "∠", "⊥", "∥", "∝"],
-            ["⁺", "⁻", "⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"],
-            ["₊", "₋", "₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"]
-        ]
-
-        for r_idx, row_syms in enumerate(symbol_sets):
-            row_f = tb.Frame(p_frame)
-            row_f.pack(fill=X, pady=1)
-            for sym in row_syms:
-                # Use lambda to capture the specific symbol
-                btn = tb.Button(row_f, text=sym, width=3, bootstyle=SECONDARY,
-                                command=lambda s=sym: self.insert_text(s),
-                                takefocus=False)  # Important: Don't steal focus!
-                btn.pack(side=LEFT, padx=1)
-
-        if self.user_macros:
-            tb.Separator(p_frame, bootstyle=SECONDARY).pack(fill=X, pady=10)
-            # Create a frame for user buttons
-            u_row = tb.Frame(p_frame, bootstyle="dark")
-            u_row.pack(fill=X, pady=2)
-
-            for i, m in enumerate(self.user_macros):
-                # Wrap to new row every 5 buttons
-                if i > 0 and i % 5 == 0:
-                    u_row = tb.Frame(p_frame, bootstyle="dark")
-                    u_row.pack(fill=X, pady=2)
-
-                warp_val = m.get('warp', 0)
-                tb.Button(u_row, text=m['label'], bootstyle="info-outline",
-                          command=lambda c=m['content'], w=warp_val: self.insert_text(c, w),
-                          takefocus=False).pack(side=LEFT, padx=2, expand=YES, fill=X)
 
     def bind_autosave_widgets(self):
         widgets = [
@@ -1090,6 +1414,21 @@ class Sheet:
             if sym == "Symbol" or name == "Variable Name" or unit == "Unit":
                 Messagebox.show_error("Empty Variable", "Empty")
                 return
+
+            # Check for ghost text before adding variable
+            if self.ghost_active:
+                response = Messagebox.yesno(
+                    "You have unaccepted suggestions (Ghost Text). Save them as real data?",
+                    "Unaccepted Suggestions",
+                )
+                if response == "Yes":
+                    self.solidify_ghost_text()
+                    # Update name/unit after solidifying (removes confidence indicator)
+                    name = self.v_name.get().strip()
+                    unit = self.v_unit.get().strip()
+                else:
+                    return
+
             self.temp_variables.append({"symbol": sym, "name": name, "unit": unit})
             self.refresh_staging_table()
             self.v_sym.delete(0, END)
@@ -1125,27 +1464,29 @@ class Sheet:
     def learn_symbols(self):
         self.symbol_learner.learn(self.master_data)
 
-    def get_best_match(self, subj, topic, sub_topic, sym, min_confidence=2):
-        return self.symbol_learner.best_match(
-            subj, topic, sub_topic, sym, min_confidence
-        )
+    def get_all_matches(self, subj, topic, sub_topic, sym, min_confidence=1):
+        """Get all possible matches for a symbol."""
+        return self.symbol_learner.all_matches(subj, topic, sub_topic, sym, min_confidence)
 
     def update_preview(self):
         if not self.enable_suggestions:
             self._clear_ghosts()
+            self.clear_tooltip()
             return
 
         # Require sufficient data
         if len(self.master_data) < 6:
             self._clear_ghosts()
+            self.clear_tooltip()
             return
 
         if self.ghost_active and self.root.focus_get() == self.v_sym:
             self._clear_ghosts()
+            self.clear_tooltip()
 
-        # Must have symbol entry focused or recently edited
-        focused = self.last_focused_widget
-        if focused not in (self.v_sym, self.v_name, self.v_unit):
+        # Use current focus instead of last_focused_widget
+        focused = self.root.focus_get()
+        if focused != self.v_sym:
             return
 
         sym = self.v_sym.get().strip()
@@ -1153,27 +1494,60 @@ class Sheet:
 
         if not sym or (placeholder and sym == placeholder):
             self._clear_ghosts()
+            self.clear_tooltip()
             return
 
         subj = self.field_e.get().strip()
         topic = self.topic_e.get().strip()
         sub_topic = self.sub_topic_e.get().strip() or "_GENERAL_"
 
-        confidence_map = {
-            "Conservative": 3,
-            "Balanced": 2,
-            "Aggressive": 1
-        }
-        min_conf = confidence_map.get(self.suggestion_strictness, 2)
-        match = self.get_best_match(subj, topic, sub_topic, sym, min_confidence=min_conf)
+        # Get ALL possible suggestions without filtering by confidence first
+        self.ghost_suggestions = []
 
-        if not match:
+        # Get all matches (up to 3) from the learner
+        all_matches = self.get_all_matches(subj, topic, sub_topic, sym, min_confidence=1)
+
+        if not all_matches:
             self._clear_ghosts()
+            self.clear_tooltip()
             return
 
-        name, unit = match
-        if focused not in (self.v_name, self.v_unit):
-            self.apply_ghost_text(name, unit)
+        # Apply strictness filtering - just limit the number shown
+        confidence_map = {
+            "Conservative": 1,  # Only show the best match
+            "Balanced": 2,  # Show top 2 matches
+            "Aggressive": 3  # Show all 3 matches
+        }
+        max_suggestions = confidence_map.get(self.suggestion_strictness, 2)
+
+        # Use the filtered number of suggestions
+        self.ghost_suggestions = all_matches[:max_suggestions]
+
+        if not self.ghost_suggestions:
+            self._clear_ghosts()
+            self.clear_tooltip()
+            return
+
+        # Reset to first suggestion if we went out of bounds
+        if self.current_ghost_index >= len(self.ghost_suggestions):
+            self.current_ghost_index = 0
+
+        # Set confidence based on actual suggestion position
+        self.ghost_confidence = 3 - self.current_ghost_index  # Higher index = lower confidence
+
+        name, unit = self.ghost_suggestions[self.current_ghost_index]
+        # Apply ghost text when focus is on any of the relevant fields
+        if focused in (self.v_sym, self.v_name, self.v_unit):
+            self.apply_ghost_text(name, unit, self.ghost_confidence)
+
+    def clear_tooltip(self):
+        if self.suggestion_tooltip:
+            try:
+                # For TopMostToolTip, call its hide_tip method
+                self.suggestion_tooltip.hide_tip()
+            except (AttributeError, tk.TclError):
+                pass
+            self.suggestion_tooltip = None
 
     def _clear_ghosts(self):
         """Remove ghost text without breaking placeholders."""
@@ -1182,6 +1556,9 @@ class Sheet:
             self.v_unit.delete(0, END)
             self.ghost_active = False
 
+        # Clear suggestion tooltip
+        self.clear_tooltip()
+
         # Restore placeholder appearance if placeholders are present
         for w in (self.v_name, self.v_unit):
             placeholder = getattr(w, "placeholder", None)
@@ -1189,36 +1566,6 @@ class Sheet:
                 w.configure(foreground="gray")
             else:
                 w.configure(foreground="")
-
-    def auto_fill_variable(self):
-        """Accepts the suggestion (solidifies ghost text)."""
-        if self.ghost_active:
-            self.solidify_ghost_text()
-            self.v_name.focus()
-            return "break"
-
-        subj = self.field_e.get().strip()
-        topic = self.topic_e.get().strip()
-        sub_topic = self.sub_topic_e.get().strip() or "_GENERAL_"
-        sym = self.v_sym.get().strip()
-
-        confidence_map = {
-            "Conservative": 3,
-            "Balanced": 2,
-            "Aggressive": 1
-        }
-        min_conf = confidence_map.get(self.suggestion_strictness, 2)
-        match = self.get_best_match(subj, topic, sub_topic, sym, min_confidence=min_conf)
-
-        if match:
-            name, unit = match
-            self.v_name.delete(0, END)
-            self.v_name.insert(0, name)
-            self.v_unit.delete(0, END)
-            self.v_unit.insert(0, unit)
-            self.v_unit.focus()
-            return "break"
-        return None
 
     def apply_row_colors(self):
         view = self.formula_table.view
@@ -1241,9 +1588,23 @@ class Sheet:
         Update a single row in the Tableview without rebuilding.
         Preserves page, search, and scroll position.
         """
+        # Find the display number for this database ID
+        display_number = None
+        for disp_num, db_id in self.display_to_db_id_map.items():
+            if db_id == int(formula_id):
+                display_number = disp_num
+                break
+        
+        if display_number is None:
+            return False  # ID not found
+        
+        # Find the row with this display number
         for row in self.formula_table.tablerows:
-            if int(row.values[0]) == int(formula_id):
-                row.values = new_main_info
+            if int(row.values[0]) == display_number:
+                # Update with sequential display number
+                updated_row = new_main_info.copy()
+                updated_row[0] = str(display_number)
+                row.values = updated_row
                 self.formula_table.load_table_data()
                 self.apply_row_colors()
                 return True
@@ -1252,27 +1613,40 @@ class Sheet:
     def refresh_main_table(self):
         rows = [v["main_info"] for v in self.master_data.values()]
         rows.sort(key=lambda x: int(x[0]))
+        
+        # Create display rows with sequential numbering and maintain ID mapping
+        display_rows = []
+        self.display_to_db_id_map = {}  # Map display number -> database ID
+        
+        for i, row in enumerate(rows):
+            # Create a copy with sequential display number
+            display_row = row.copy()
+            display_row[0] = str(i + 1)  # Sequential display number
+            display_rows.append(display_row)
+            
+            # Store mapping: display_number -> database_id
+            self.display_to_db_id_map[i + 1] = int(row[0])  # row[0] is original database ID
 
-        self.formula_table.build_table_data(self.cols, rows)  # type: ignore
+        self.formula_table.build_table_data(self.cols, display_rows)  # type: ignore
         self.formula_table.load_table_data()
         self.apply_row_colors()
 
     def validate_formula_entry(self):
-        if not self.formula_e.get().strip():
-            Messagebox.show_warning("Formula cannot be empty.", "Validation Error")
+        is_valid, error_message = FormulaUtils.validate_formula_data(
+            self.formula_e.get().strip(),
+            self.field_e.get().strip(),
+            self.topic_e.get().strip(),
+            self.v_unit.get()
+        )
+        
+        if not is_valid:
+            Messagebox.show_warning(error_message, "Validation Error")
             return False
 
-        if not self.field_e.get().strip():
-            Messagebox.show_warning("Please select a Field.", "Validation Error")
-            return False
-
-        if self.v_unit.get() == "Unit":
-            Messagebox.show_warning("Please enter a valid Variable.", "Variable Empty")
-            return False
-
-        if self.v_name.cget("foreground") == "gray" or self.v_unit.cget("foreground") == "gray":
+        # Check for active ghost text using the new ghost_active state
+        if self.ghost_active:
             response = Messagebox.yesno(
-                "You have unaccepted suggestions (Ghost Text). Save them as real data?",
+                "You have unaccepted suggestions. Save them as real data?",
                 "Unaccepted Suggestions",
             )
             if response == "Yes":
@@ -1283,12 +1657,12 @@ class Sheet:
         return True
 
     def renumber_database(self):
-        new_master = {}
-        for index, old_id in enumerate(sorted(self.master_data.keys()), start=1):
-            data = self.master_data[old_id]
-            data["main_info"][0] = index
-            new_master[index] = data
-        self.master_data = new_master
+        self.master_data = FormulaUtils.renumber_database(self.master_data)
+
+    @staticmethod
+    def _get_milestone_bootstyle(milestone_count, default_bootstyle):
+        """Get appropriate bootstyle for milestone count."""
+        return FormulaUtils.get_milestone_bootstyle(milestone_count, default_bootstyle)  # Use default for < 400
 
     def show_milestone_banner(self, text, bootstyle="success"):
         """
@@ -1300,12 +1674,16 @@ class Sheet:
         """
 
         # Prevent stacking banners
-        if hasattr(self, "_active_banner") and self._active_banner.winfo_exists():
+        if hasattr(self, "_active_banner") and self._active_banner and self._active_banner.winfo_exists():
             return
+
+        # Get milestone count and appropriate bootstyle
+        milestone_count = self._extract_milestone_count(text)
+        initial_bootstyle = self._get_milestone_bootstyle(milestone_count, bootstyle)
 
         banner = tb.Frame(
             self.root,
-            bootstyle=bootstyle,
+            bootstyle=initial_bootstyle,
             padding=(15, 8)
         )
 
@@ -1315,35 +1693,334 @@ class Sheet:
             banner,
             text=text,
             font=(self.font_name, 11, "bold"),
-            bootstyle=f"inverse-{bootstyle}"
+            bootstyle=f"inverse-{initial_bootstyle}"  # Match banner background, not inverse
         )
+
         label.pack()
 
-        banner.place(relx=0.5, y=-80, anchor="n")
+        # Choose animation based on milestone count
+        self._select_milestone_animation(milestone_count, banner, label)
 
+    def _select_milestone_animation(self, milestone_count, banner, label):
+        """Select and start appropriate animation for milestone count."""
+        if milestone_count >= 1000:
+            self._animate_god_mode_banner(banner, label)
+        elif milestone_count >= 900:
+            self._animate_transcendence_banner(banner, label)
+        elif milestone_count >= 800:
+            self._animate_cosmic_banner(banner, label)
+        elif milestone_count >= 700:
+            self._animate_dimensional_banner(banner, label)
+        elif milestone_count >= 600:
+            self._animate_neural_banner(banner, label)
+        elif milestone_count >= 500:
+            self._animate_quantum_banner(banner, label)
+        else:
+            self._animate_standard_banner(banner)  # Default animation for < 400
+
+    @staticmethod
+    def _extract_milestone_count(text):
+        """Extract milestone number from banner text."""
+        import re
+        match = re.search(r'(\d+)', text)
+        return int(match.group(1)) if match else 0
+
+    def _animate_standard_banner(self, banner):
+        """Standard slide-down animation for milestones < 400."""
+        banner.place(relx=0.5, y=-80, anchor="n")
         target_y = 10
         step = 4
 
         def slide_down(y):
             if not banner.winfo_exists():
                 return
-
             if y < target_y:
                 banner.place(y=y)
                 self.root.after(15, lambda: slide_down(y + step))
             else:
-                self.root.after(2800, slide_up)
+                self.root.after(2800, lambda: self._standard_slide_up(banner))
 
-        def slide_up():
+        slide_down(-80)
+
+    def _standard_slide_up(self, banner):
+        """Standard slide-up animation."""
+        if not banner.winfo_exists():
+            self._active_banner = None
+            return
+        y = banner.winfo_y()
+        if y > -80:
+            banner.place(y=y - 4)
+            self.root.after(15, lambda: self._standard_slide_up(banner))
+        else:
+            banner.destroy()
+            self._active_banner = None
+
+    def _animate_quantum_banner(self, banner, _label):
+        """Quantum realm animation - enhanced wavy effect."""
+        banner.place(relx=0.5, y=-80, anchor="n")
+        target_y = 10
+        step = 4
+        wave_offset = 0
+        wave_amplitude = 0.08  # Increased wave effect
+        frequency = 0.4
+
+        def slide_down(y):
+            nonlocal wave_offset
             if not banner.winfo_exists():
                 return
+            if y < target_y:
+                # Enhanced wavy motion with both X and Y movement
+                wave_x = 0.5 + wave_amplitude * math.sin(wave_offset)
+                wave_y = y + 2 * math.sin(wave_offset * 2)  # Subtle Y oscillation
+                banner.place(relx=wave_x, y=wave_y, anchor="n")
+                wave_offset += frequency
+                self.root.after(15, lambda: slide_down(y + step))
+            else:
+                self.root.after(3000, lambda: quantum_slide_up())
 
+        def quantum_slide_up():
+            nonlocal wave_offset
+            if not banner.winfo_exists():
+                self._active_banner = None
+                return
             y = banner.winfo_y()
             if y > -80:
-                banner.place(y=y - step)
-                self.root.after(15, slide_up)
+                wave_x = 0.5 + wave_amplitude * math.sin(wave_offset)
+                wave_y = y - 4 + 2 * math.sin(wave_offset * 2)
+                banner.place(relx=wave_x, y=wave_y, anchor="n")
+                wave_offset += frequency
+                self.root.after(15, quantum_slide_up)
             else:
                 banner.destroy()
+                self._active_banner = None
+
+        slide_down(-80)
+
+    def _animate_neural_banner(self, banner, _label):
+        """Neural sync animation - enhanced pulsing effect."""
+        banner.place(relx=0.5, y=-80, anchor="n")
+        target_y = 10
+        step = 4
+        pulse_phase = 0
+        pulse_frequency = 0.6
+
+        def slide_down(y):
+            nonlocal pulse_phase
+            if not banner.winfo_exists():
+                return
+            if y < target_y:
+                # Enhanced pulsing effect - keep initial color
+                scale = 1.0 + 0.15 * math.sin(pulse_phase)
+                banner.place(relx=0.5, y=y, anchor="n")
+                _label.configure(font=(self.font_name, int(11 * scale), "bold"))
+
+                pulse_phase += pulse_frequency
+                self.root.after(15, lambda: slide_down(y + step))
+            else:
+                self.root.after(3200, lambda: neural_slide_up())
+
+        def neural_slide_up():
+            nonlocal pulse_phase
+            if not banner.winfo_exists():
+                self._active_banner = None
+                return
+            y = banner.winfo_y()
+            if y > -80:
+                scale = 1.0 + 0.15 * math.sin(pulse_phase)
+                banner.place(relx=0.5, y=y - 4, anchor="n")
+                _label.configure(font=(self.font_name, int(11 * scale), "bold"))
+
+                pulse_phase += pulse_frequency
+                self.root.after(15, neural_slide_up)
+            else:
+                banner.destroy()
+                self._active_banner = None
+
+        slide_down(-80)
+
+    def _animate_dimensional_banner(self, banner, _label):
+        """Dimensional shift animation - rotation effect."""
+        banner.place(relx=0.5, y=-80, anchor="n")
+        target_y = 10
+        step = 4
+        rotation = 0
+
+        def slide_down(y):
+            nonlocal rotation
+            if not banner.winfo_exists():
+                return
+            if y < target_y:
+                # Add rotation effect by changing anchor slightly
+                offset_x = 10 * math.sin(rotation)
+                banner.place(relx=0.5 + offset_x / 1000, y=y, anchor="n")
+                rotation += 0.2
+                self.root.after(15, lambda: slide_down(y + step))
+            else:
+                self.root.after(3400, lambda: dimensional_slide_up())
+
+        def dimensional_slide_up():
+            nonlocal rotation
+            if not banner.winfo_exists():
+                self._active_banner = None
+                return
+            y = banner.winfo_y()
+            if y > -80:
+                offset_x = 10 * math.sin(rotation)
+                banner.place(relx=0.5 + offset_x / 1000, y=y - 4, anchor="n")
+                rotation += 0.2
+                self.root.after(15, dimensional_slide_up)
+            else:
+                banner.destroy()
+                self._active_banner = None
+
+        slide_down(-80)
+
+    def _animate_cosmic_banner(self, banner, _label):
+        """Cosmic awareness animation - enhanced twinkling effect."""
+        banner.place(relx=0.5, y=-80, anchor="n")
+        target_y = 10
+        step = 4
+        twinkle_phase = 0
+        star_phase = 0
+
+        def update_twinkle_style():
+            """Update banner position for twinkling effect - keep initial color."""
+            # Enhanced twinkling with position variation only
+
+        def slide_down(y):
+            nonlocal twinkle_phase, star_phase
+            if not banner.winfo_exists():
+                return
+            if y < target_y:
+                # Enhanced twinkling with position variation
+                star_offset = 3 * math.sin(star_phase)
+                banner.place(relx=0.5, y=y + star_offset, anchor="n")
+                update_twinkle_style()
+                twinkle_phase += 0.5
+                star_phase += 0.3
+                self.root.after(15, lambda: slide_down(y + step))
+            else:
+                self.root.after(3600, lambda: cosmic_slide_up())
+
+        def cosmic_slide_up():
+            nonlocal twinkle_phase, star_phase
+            if not banner.winfo_exists():
+                self._active_banner = None
+                return
+            y = banner.winfo_y()
+            if y > -80:
+                star_offset = 3 * math.sin(star_phase)
+                update_twinkle_style()
+                banner.place(relx=0.5, y=y - 4 + star_offset, anchor="n")
+                twinkle_phase += 0.5
+                star_phase += 0.3
+                self.root.after(15, cosmic_slide_up)
+            else:
+                banner.destroy()
+                self._active_banner = None
+
+        slide_down(-80)
+
+    def _animate_transcendence_banner(self, banner, _label):
+        """Transcendence animation - fading and color shifting."""
+        banner.place(relx=0.5, y=-80, anchor="n")
+        target_y = 10
+        step = 4
+        fade_phase = 0
+
+        def slide_down(y):
+            nonlocal fade_phase
+            if not banner.winfo_exists():
+                return
+            if y < target_y:
+                # Add fading effect
+                banner.place(relx=0.5, y=y, anchor="n")
+                # Cycle through different styles
+                fade_phase += 0.3
+                self.root.after(15, lambda: slide_down(y + step))
+            else:
+                self.root.after(3800, lambda: transcendence_slide_up())
+
+        def transcendence_slide_up():
+            nonlocal fade_phase
+            if not banner.winfo_exists():
+                self._active_banner = None
+                return
+            y = banner.winfo_y()
+            if y > -80:
+                banner.place(relx=0.5, y=y - 4, anchor="n")
+                fade_phase += 0.3
+                self.root.after(15, transcendence_slide_up)
+            else:
+                banner.destroy()
+                self._active_banner = None
+
+        slide_down(-80)
+
+    def _animate_god_mode_banner(self, banner, _label):
+        """God mode animation - ultimate combination of effects."""
+        banner.place(relx=0.5, y=-80, anchor="n")
+        target_y = 10
+        step = 2  # Slower, more majestic
+        wave_offset = 0
+        pulse_phase = 0
+        glow_phase = 0
+        rainbow_phase = 0
+        rotation_phase = 0
+
+        def slide_down(y):
+            nonlocal wave_offset, pulse_phase, glow_phase, rainbow_phase, rotation_phase
+            if not banner.winfo_exists():
+                return
+            if y < target_y:
+                # Ultimate combination of effects - keep initial color
+                wave_x = 0.5 + 0.04 * math.sin(wave_offset)
+                wave_y = y + 3 * math.sin(wave_offset * 3)  # Complex Y movement
+                scale = 1.0 + 0.08 * math.sin(pulse_phase)
+
+                # Rotation effect
+                rotation = 15 * math.sin(rotation_phase)
+
+                # Combine wave position with rotation offset
+                final_x = wave_x + rotation / 100
+                banner.place(relx=final_x, y=wave_y, anchor="n")
+                _label.configure(font=(self.font_name, int(11 * scale), "bold"))
+
+                wave_offset += 0.15
+                pulse_phase += 0.3
+                glow_phase += 0.2
+                rainbow_phase += 0.12
+                rotation_phase += 0.1
+                self.root.after(25, lambda: slide_down(y + step))  # Slowest, most majestic
+            else:
+                self.root.after(4000, lambda: god_mode_slide_up())
+
+        def god_mode_slide_up():
+            nonlocal wave_offset, pulse_phase, glow_phase, rainbow_phase, rotation_phase
+            if not banner.winfo_exists():
+                self._active_banner = None
+                return
+            y = banner.winfo_y()
+            if y > -80:
+                wave_x = 0.5 + 0.04 * math.sin(wave_offset)
+                wave_y = y - 2 + 3 * math.sin(wave_offset * 3)
+                scale = 1.0 + 0.08 * math.sin(pulse_phase)
+                rotation = 15 * math.sin(rotation_phase)
+
+                # Combine wave position with rotation offset
+                final_x = wave_x + rotation / 100
+                banner.place(relx=final_x, y=wave_y, anchor="n")
+                _label.configure(font=(self.font_name, int(11 * scale), "bold"))
+
+                wave_offset += 0.15
+                pulse_phase += 0.3
+                glow_phase += 0.2
+                rainbow_phase += 0.12
+                rotation_phase += 0.1
+                self.root.after(25, god_mode_slide_up)
+            else:
+                banner.destroy()
+                self._active_banner = None
 
         slide_down(-80)
 
@@ -1462,31 +2139,37 @@ class Sheet:
         )
 
     MILESTONES = {
-        2: "🌱 First Steps: You've started your collection!",
-        5: "⚡ Quick Learner: You're getting the hang of the Console.",
-        10: "🏆 Milestone Unlocked: The Beginner's Dozen! (10 Formulas Saved)",
-        20: "🎉 20 formulas! Created by Avyaya Goel (Class 10)",
-        25: "🚀 Milestone Unlocked: Physics Pro! (25 Formulas Saved)",
-        30: "📐 Structure Forming: Patterns are beginning to stabilize.",
-        50: "🔥 Milestone Unlocked: Half-Century! You are becoming a speed god.",
-        75: "🧠 Sustained Usage Detected: This system is now part of your workflow.",
-        100: "👑 LEGENDARY: 100 Formulas! Your Calculus Console is complete.",
-        120: "⚠️ Extended Consistency Observed: Advanced behavior emerging.",
-        151: "🌑 Static Silence: Most would have disconnected by now. You... stayed.",
-        175: "🛰️ Observed Persistence: Interaction data is deviating from standard exit-rates.",
-        200: "💎 Double Century: 200 Fragments. The architecture is no longer just lines of data.",
-        238: "☢️ Critical Mass: 238 Formulas. The information density is warping the system clock.",
-        300: "🪐 PLANETARY SCALE: 300 Formulas. A complete world of variables and constants.",
-        400: "🔱 ABSOLUTE STABILITY: 400. There is too much friction."
-             " The heat should have frozen this screen."
-             " Why is everything still moving?"
+        2: "🌱 First Steps: Initial database established.",
+        5: "⚡ Quick Learner: Basic proficiency achieved.",
+        10: "🏆 Beginner's Dozen: Foundation of 10 formulas complete.",
+        20: "🎉 Early Progress: 20 formulas recorded.",
+        25: "🚀 Physics Foundation: 25 physics formulas documented.",
+        30: "📐 Structural Stability: Pattern recognition developing.",
+        50: "🔥 Half Century: Significant database reached.",
+        75: "🧠 Workflow Integration: System becoming part of routine.",
+        100: "👑 Complete Foundation: 100 formulas - comprehensive knowledge base.",
+        120: "⚠️ Advanced Usage: Complex patterns emerging.",
+        151: "🌑 Persistent Usage: Extended engagement detected.",
+        175: "🛰️ Deviation from Norm: Usage patterns exceed standard metrics.",
+        200: "💎 Data Architecture: 200 formulas - complex information structure.",
+        238: "☢️ Critical Density: Information threshold approaching limits.",
+        300: "🪐 System Scale: 300 formulas - planetary-level knowledge.",
+        400: "🔱 Thermal Anomaly: 400 formulas. System should have failed under normal conditions.",
+        500: "🌊 Quantum Barrier: 500 formulas. Simulation parameters exceeded.",
+        600: "⚡ Neural Integration: 600 formulas. System adaptation in progress.",
+        700: "🔮 Reality Distortion: 700 formulas. Physics bending to data patterns.",
+        800: "🌌 Universal Pattern: 800 formulas. Cosmic-level recognition achieved.",
+        900: "🎭 Transcendent State: 900 formulas. User-system boundary dissolving.",
+        999: "🌟 Event Horizon: 999 formulas. Approaching infinite knowledge.",
+        1000: "✨ Absolute Mastery: 1000 formulas. Complete system understanding."
     }
 
     COUNT_TIPS = {
         3: [("entry_tip", "Speed Tip: Use Enter to jump between fields instead of clicking.")],
         4: [("keypad_tip", "Speed Tip: Use 'Ctrl + K' to open the math symbol keypad instantly.")],
         6: [("Feature_Unlock", "✨ Feature Unlocked: Smart Suggestions is now active!")],
-        7: [("arrow_tip", "Speed Tip: Use the 'Right Arrow' key to instantly accept suggestions.")],
+        7: [("ghost_system_tip",
+             "Speed Tip: Smart Suggestions show ghost Name/Unit. Ctrl+↓ accept, Ctrl+→/← cycle, Esc dismiss.")],
         9: [("table_tip", "Speed Tip: Double-click any saved formula to instantly view or edit it.")],
         11: [("editing_tip", "Pro Tip: Editing a formula keeps its ID — no need to re-organize later.")],
         12: [("formula_mastery",
@@ -1525,20 +2208,7 @@ class Sheet:
 
     def _calculate_subject_stats(self):
         """Calculate statistics for subjects and variable complexity."""
-        stats = {"Maths": 0, "Physics": 0, "Chemistry": 0}
-        other_subjects = set()
-        var_overload = False
-
-        for entry in self.master_data.values():
-            if len(entry.get("variables", [])) >= 5:
-                var_overload = True
-            subj = entry["main_info"][2]
-            if subj in stats:
-                stats[subj] += 1
-            elif subj:
-                other_subjects.add(subj)
-
-        return stats, other_subjects, var_overload
+        return FormulaUtils.calculate_formula_statistics(self.master_data)
 
     def _check_awards(self, stats, other_subjects, var_overload):
         """Check and display awards based on statistics."""
@@ -1586,6 +2256,12 @@ class Sheet:
 
         stats, other_subjects, var_overload = self._calculate_subject_stats()
         self._check_awards(stats, other_subjects, var_overload)
+
+    def trigger_milestone_manually(self, milestone_count):
+        """Manually trigger a milestone for debugging/testing purposes."""
+        if milestone_count in self.MILESTONES:
+            # Force show the milestone even if already seen
+            self.show_milestone_banner(self.MILESTONES[milestone_count])
 
     def get_reflection_150_state(self):
         rs = self.tip_state.get("reflection_150")
@@ -1660,6 +2336,7 @@ class Sheet:
 
         def slide_up():
             if not self.entity_banner.winfo_exists():
+                self.entity_banner = None
                 return
             y = self.entity_banner.winfo_y()
             if y > -90:
@@ -1667,6 +2344,7 @@ class Sheet:
                 self.root.after(15, slide_up)
             else:
                 self.entity_banner.destroy()
+                self.entity_banner = None
 
         slide_down(-90)
 
@@ -1739,7 +2417,7 @@ class Sheet:
 
         self.topic_cb.configure(state="readonly", values=options)
         self.topic_cb.set("")
-        self.topic_cb.bind(COMBOBOX_SELECTED_EVENT, lambda e: self._advance_entity())
+        self.topic_cb.bind(COMBOBOX_SELECTED_EVENT, lambda _e: self._advance_entity())
 
     def _advance_entity(self):
         text = self.topic_cb.get()
@@ -1791,8 +2469,11 @@ class Sheet:
 
         if not self.validate_formula_entry():
             return
-
-        self._cleanup_orphaned_data()
+        try:
+            self._cleanup_orphaned_data()
+        except Exception as _err:
+            logging.exception("Error during _cleanup_orphaned_data: %s", _err)
+        self.accept_ghost_suggestion()
         form_data = self._collect_form_data()
 
         if not form_data['text']:
@@ -1834,11 +2515,24 @@ class Sheet:
 
     def _cleanup_orphaned_data(self):
         """Remove orphaned entries from master_data that are not visible in table."""
-        visible_ids = [int(row.values[0]) for row in self.formula_table.tablerows]
-        for stored_id in self.master_data.keys():
-            if stored_id not in visible_ids:
-                if not (self.editing_mode and stored_id == self.edit_id):
-                    del self.master_data[stored_id]
+        try:
+            # Convert display numbers back to database IDs using the mapping
+            visible_db_ids = set()
+            if hasattr(self, 'display_to_db_id_map') and self.display_to_db_id_map:
+                for row in self.formula_table.tablerows:
+                    display_num = int(row.values[0])
+                    if display_num in self.display_to_db_id_map:
+                        visible_db_ids.add(self.display_to_db_id_map[display_num])
+            
+            # Create a static snapshot of keys to prevent 'dictionary changed size' RuntimeError
+            master_keys = list(self.master_data.keys())
+            for stored_id in master_keys:
+                if stored_id not in visible_db_ids:
+                    if not (self.editing_mode and stored_id == self.edit_id):
+                        del self.master_data[stored_id]
+        except Exception as e:
+            logging.error(f"Error during _cleanup_orphaned_data: {e}")
+            # Don't re-raise - allow save operation to continue
 
     def _collect_form_data(self):
         """Collect and return form data as a dictionary."""
@@ -1869,36 +2563,72 @@ class Sheet:
     def _handle_edit_mode(self, form_data):
         """Handle saving in edit mode - update existing entry."""
         target_id = self.edit_id
-        new_main_info = [target_id, form_data['text'], form_data['field'],
-                         form_data['topic'], form_data['sub_topic']]
 
-        self.master_data[target_id] = {
-            "main_info": new_main_info,
-            "variables": self.temp_variables.copy()
-        }
+        try:
+            # Update in database
+            success = self.db_manager.update_formula(
+                formula_id=target_id,
+                formula_text=form_data['text'],
+                field=form_data['field'],
+                topic=form_data['topic'],
+                sub_topic=form_data['sub_topic'],
+                variables=self.temp_variables.copy()
+            )
 
-        updated = self.update_table_row_by_id(target_id, new_main_info)
-        if not updated:
-            self.refresh_main_table()
+            if success:
+                # Update local data structure
+                new_main_info = [target_id, form_data['text'], form_data['field'],
+                                 form_data['topic'], form_data['sub_topic']]
 
-        show_toast(f"Formula {form_data['text']} Changed Successfully")
-        self.editing_mode = False
-        self.edit_id = None
-        self.save_btn.configure(text="Save Formula", bootstyle=INFO)
+                self.master_data[target_id] = {
+                    "main_info": new_main_info,
+                    "variables": self.temp_variables.copy()
+                }
+
+                # Always refresh the entire table to maintain synchronization
+                self.refresh_main_table()
+
+                show_toast(f"Formula {form_data['text']} Changed Successfully")
+                self.editing_mode = False
+                self.edit_id = None
+                self.save_btn.configure(text="Save Formula", bootstyle=INFO)
+            else:
+                show_toast("Failed to update formula", bootstyle=DANGER)
+
+        except Exception as e:
+            logging.error(f"Error updating formula: {e}")
+            show_toast("Error updating formula", bootstyle=DANGER)
 
     def _handle_add_mode(self, form_data):
         """Handle saving in add mode - create new entry."""
-        new_id = max(self.master_data.keys(), default=0) + 1
-        self.master_data[new_id] = {
-            "main_info": [new_id, form_data['text'], form_data['field'],
-                          form_data['topic'], form_data['sub_topic']],
-            "variables": self.temp_variables.copy()
-        }
+        try:
+            # Add to database
+            new_id = self.db_manager.add_formula(
+                formula_text=form_data['text'],
+                field=form_data['field'],
+                topic=form_data['topic'],
+                sub_topic=form_data['sub_topic'],
+                variables=self.temp_variables.copy()
+            )
 
-        show_toast(f"Formula {form_data['text']} Added Successfully to sheet #{new_id}")
-        self.secret_movement("save_formula")
-        self.renumber_database()
-        self.refresh_main_table()
+            if new_id:
+                # Update local data structure
+                self.master_data[new_id] = {
+                    "main_info": [new_id, form_data['text'], form_data['field'],
+                                  form_data['topic'], form_data['sub_topic']],
+                    "variables": self.temp_variables.copy()
+                }
+
+                show_toast(f"Formula {form_data['text']} Added Successfully to sheet #{new_id}")
+                self.secret_movement("save_formula")
+                # Always refresh the entire table to maintain synchronization
+                self.refresh_main_table()
+            else:
+                show_toast("Failed to add formula", bootstyle=DANGER)
+
+        except Exception as e:
+            logging.error(f"Error adding formula: {e}")
+            show_toast("Error adding formula", bootstyle=DANGER)
 
     def _perform_post_save_housekeeping(self):
         """Perform cleanup and checks after saving a formula."""
@@ -1913,7 +2643,9 @@ class Sheet:
         }
 
         count = len(self.master_data)
+        logging.debug(f"_perform_post_save_housekeeping: master_count={count}; keys={list(self.master_data.keys())}")
         self.check_milestones(count)
+        self.update_awards_button()  # Update Awards button state after saving
 
         if len(unique_symbols) >= 10:
             self.show_tip_once(
@@ -1938,30 +2670,16 @@ class Sheet:
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
 
-            # 2. Ensure the source file actually exists before trying to copy it
+        # Ensure the source file actually exists before trying to copy it
         if not os.path.exists(self.db_file):
             return
 
-        # Find the oldest backup to overwrite
-        # We look for the file with the oldest 'Modified Time'
-        oldest_file = self.backup_slots[0]
-        oldest_time = float('inf')
+        # Find oldest backup slot using utility
+        oldest_file = FormulaUtils.find_oldest_backup_slot(self.backup_slots)
 
-        for slot in self.backup_slots:
-            if not os.path.exists(slot):
-                oldest_file = slot
-                break  # Use the empty slot first
-
-            mtime = os.path.getmtime(slot)
-            if mtime < oldest_time:
-                oldest_time = mtime
-                oldest_file = slot
-
-        # Perform the rotation
+        # Perform the rotation using DatabaseManager backup method
         try:
-            shutil.copy2(self.db_file, oldest_file)
-        except (OSError, IOError) as e:
-            print(f"Backup failed: {e}")  # Silent fail to prevent startup crashes
+            self.db_manager.backup_database(oldest_file)
         except Exception as e:
             logging.error(f"Database Rotation Failed (Backup): {self.db_file} -> {oldest_file}. Error: {e}",
                           exc_info=True)
@@ -1970,7 +2688,7 @@ class Sheet:
         """Scans your data and updates the Topic dropdown automatically."""
         if hasattr(self, 'subject_cb'):
             # Ensure subjects are always there
-            all_subjects = {d['main_info'][2] for d in self.master_data.values() if d['main_info'][2]}
+            all_subjects = FormulaUtils.extract_subjects_from_data(self.master_data)
             self.subject_cb['values'] = sorted(all_subjects | {"Physics", "Chemistry", "Maths"})
 
     def on_subject_change(self):
@@ -2031,6 +2749,9 @@ class Sheet:
         self.v_sym.delete(0, END)
         self.v_name.delete(0, END)
         self.v_unit.delete(0, END)
+        self.v_sym.configure(foreground="")
+        self.v_unit.configure(foreground="")
+        self.v_name.configure(foreground="")
         self.temp_variables = []
         self.topic_cb['values'] = []
         self.sub_topic_cb['values'] = []
@@ -2048,7 +2769,9 @@ class Sheet:
     def selected(self):
         item = self.formula_table.view.selection()
         if item:
-            r_id = int(self.formula_table.view.item(item[0], "values")[0])
+            display_number = int(self.formula_table.view.item(item[0], "values")[0])
+            # Convert display number back to database ID
+            r_id = self.display_to_db_id_map.get(display_number)
         else:
             r_id = None
         return r_id
@@ -2105,21 +2828,30 @@ class Sheet:
                     getattr(self, "edit_id", None) == row_id
             )
 
-            # Delete from master data
-            del self.master_data[row_id]
-            self.renumber_database()
-            self.refresh_main_table()
-            self.hide_details()
+            try:
+                # Delete from database
+                success = self.db_manager.delete_formula(row_id)
 
-            if deleting_current_edit:
-                # Exit edit mode completely
-                self.editing_mode = False
-                self.edit_id = None
-                self.clear_entries()
+                if success:
+                    # Delete from master data
+                    del self.master_data[row_id]
+                    self.refresh_main_table()
+                    self.hide_details()
 
-                show_toast("Editing formula deleted", bootstyle=WARNING)
-            else:
-                show_toast("Formula deleted", bootstyle=SUCCESS)
+                    if deleting_current_edit:
+                        # Exit edit mode completely
+                        self.editing_mode = False
+                        self.edit_id = None
+                        self.clear_entries()
+                        show_toast("Editing formula deleted", bootstyle=WARNING)
+                    else:
+                        show_toast("Formula deleted", bootstyle=SUCCESS)
+                else:
+                    show_toast("Failed to delete formula", bootstyle=DANGER)
+
+            except Exception as e:
+                logging.error(f"Error deleting formula: {e}")
+                show_toast("Error deleting formula", bootstyle=DANGER)
 
     def start_edit(self, data):
         self.editing_mode = True
@@ -2136,90 +2868,269 @@ class Sheet:
         self.refresh_staging_table()
         self.save_btn.configure(text="Update Formula", bootstyle=WARNING)
 
+    def _cancel_autosave_timer(self):
+        """Cancel any pending autosave timer."""
+        if self.auto_save_timer is not None:
+            try:
+                self.root.after_cancel(self.auto_save_timer)
+            except (ValueError, RuntimeError):
+                pass
+            self.auto_save_timer = None
+    
+    def _wait_for_save_completion(self):
+        """Wait for any in-progress save operation to complete."""
+        if not self.save_in_progress:
+            return
+            
+        logging.info("Waiting for save operation to complete...")
+        # Wait up to 5 seconds for save to complete
+        for _ in range(50):  # 50 * 0.1 = 5 seconds
+            with self.save_lock:
+                if not self.save_in_progress:
+                    break
+            time.sleep(0.1)
+    
+    def _cleanup_resources(self):
+        """Clean up application resources during shutdown."""
+        self._cancel_autosave_timer()
+        self._wait_for_save_completion()
+        
+        # Close database connection
+        if hasattr(self, 'db_manager'):
+            self.db_manager.close()
+
     def on_closing(self):
         if hasattr(self, 'in_reflection_mode') and self.in_reflection_mode:
             show_toast(SYSTEM_LOCKED_NICE_TRY_MSG, bootstyle=DANGER)
             return
-        final_save_list = []
+
         if self.formula_e.get().strip():
             response = Messagebox.yesno(
                 "You have an unsaved formula in the entry box. Exit anyway?",
                 "Unsaved Work")
             if response == "No":
                 return
-        for row in self.formula_table.tablerows:
-            row_id = int(row.values[0])
-            if row_id in self.master_data:
-                self.master_data[row_id]["main_info"][0] = row_id
-                final_save_list.append(self.master_data[row_id])
-        final_save_list.sort(key=lambda x: int(x["main_info"][0]))
 
-        for index, entry in enumerate(final_save_list, start=1):
-            entry["main_info"][0] = index
+        try:
+            self._cleanup_resources()
+        except Exception as e:
+            logging.error(f"Error during application shutdown: {e}")
 
-        with open(self.db_file, "w", encoding="utf-8") as f:
-            json.dump(final_save_list, f, indent=4, ensure_ascii=False)
         self.root.destroy()
 
     def check_and_migrate_env(self):
+        """Check for existing formula data and migrate if needed (only once)."""
+        migration_marker = os.path.join(self.data_dir, ".formula_migration_complete")
+
+        # Quick check: if migration marker exists, no migration needed
+        if os.path.exists(migration_marker):
+            logging.info("Formula migration already completed, skipping")
+            return
+
+        # Check if migration is needed
+        if not self._needs_migration():
+            return
+
+        # Perform migration
+        try:
+            logging.info("Starting one-time formula migration from old location")
+            self._perform_migration()
+            self._create_migration_marker()
+            logging.info("Formula migration completed successfully")
+        except Exception as e:
+            logging.error(f"Formula migration failed: {e}")
+
+    @staticmethod
+    def _needs_migration() -> bool:
+        """Check if migration is needed."""
         appdata = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
         old_dir = os.path.join(appdata, "CalculusConsole")
         new_dir = os.path.join(appdata, "Microsoft", "CLR", "Metadata")
 
-        # 1. ALWAYS ensure the new stealth directory exists
-        os.makedirs(new_dir, exist_ok=True)
+        # Check for old data files
+        old_files = [
+            os.path.join(old_dir, OLD_JSON_FILENAME),
+            os.path.join(new_dir, SCHEMA_FILENAME)
+        ]
 
-        # 2. Define the primary target
-        new_db = os.path.join(new_dir, self.new_db_name)
+        return any(os.path.exists(f) for f in old_files)
 
-        # 3. MIGRATION LOGIC (Only if old data exists)
-        old_db = os.path.join(old_dir, self.db_name)
-        if os.path.exists(old_db) and not os.path.exists(new_db):
+    def _perform_migration(self):
+        """Perform the actual migration."""
+        appdata = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        old_dir = os.path.join(appdata, "CalculusConsole")
+        new_dir = os.path.join(appdata, "Microsoft", "CLR", "Metadata")
+
+        # Migration paths
+        old_json = os.path.join(old_dir, OLD_JSON_FILENAME)
+        new_schema = os.path.join(new_dir, SCHEMA_FILENAME)
+
+        # Migrate from JSON
+        if os.path.exists(old_json):
+            self._migrate_json_file(old_json)
+        elif os.path.exists(new_schema):
+            self._migrate_schema_file(new_schema)
+
+        # Move config and tip files
+        self._move_config_files(old_dir, new_dir)
+
+    def _migrate_json_file(self, json_path: str):
+        """Migrate from JSON file."""
+        success, count = self.db_manager.migrate_from_json(json_path)
+        if success:
+            logging.info(f"Migrated {count} formulas from data file")
+            # Remove the original file after successful migration
             try:
-                m_map = {
-                    self.db_name: self.new_db_name,
-                    "config.json": "user_env.sys",
-                    "tip_state.json": "runtime_log.bin"
-                }
-                for old_name, new_name in m_map.items():
-                    src = os.path.join(old_dir, old_name)
-                    dst = os.path.join(new_dir, new_name)
-                    if os.path.exists(src):
-                        import shutil
-                        shutil.copy2(src, dst)
-                # Rename old dir to hide it
-                os.rename(old_dir, os.path.join(appdata, ".legacy_cache"))
-            except Exception as e:
-                print(f"Migration skipped: {e}")
-
-        # 4. INITIALIZATION (For the Friend's PC)
-        # If the file still doesn't exist, create a blank one so load_from_file doesn't crash
-        if not os.path.exists(new_db):
-            with open(new_db, 'w', encoding='utf-8') as f:
-                import json
-                json.dump([], f)  # Start with an empty list
-
-        self.data_dir = new_dir
-        self.db_file = os.path.join(self.data_dir, self.new_db_name)
-        self.config_file = os.path.join(self.data_dir, "user_env.sys")
-        self.tip_file = os.path.join(self.data_dir, "runtime_log.bin")
+                os.remove(json_path)
+                logging.info("Removed original data file after migration")
+            except OSError:
+                logging.error("Failed to remove original data file")
+    
+    def _migrate_schema_file(self, schema_path: str):
+        """Migrate from schema file (JSON format)."""
+        # Both files are JSON format, just use the JSON migration
+        self._migrate_json_file(schema_path)
+    
+    def _move_config_files(self, old_dir: str, new_dir: str):
+        """Move config and tip files to new location."""
+        config_map = {
+            "user_env.sys": self.config_name,
+            "runtime_log.bin": self.tip_name
+        }
+        for old_name, new_name in config_map.items():
+            src = os.path.join(old_dir, old_name)
+            dst = os.path.join(new_dir, new_name)
+            if os.path.exists(src) and not os.path.exists(dst):
+                shutil.copy2(src, dst)
+                os.remove(src)
+                logging.info(f"Moved {old_name} to new location as {new_name}")
+    
+    def _create_migration_marker(self):
+        """Create migration marker file."""
+        migration_marker = os.path.join(self.data_dir, ".formula_migration_complete")
+        with open(migration_marker, "w") as f:
+            from datetime import datetime
+            f.write(f"Formula migration completed: {datetime.now().isoformat()}")
 
     def load_from_file(self):
-        if os.path.exists(self.db_file):
-            try:
-                with open(self.db_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    for item in data:
-                        item = normalize_main_info(item)
-                        item_id = int(item["main_info"][0])
-                        self.master_data[item_id] = item
-                    self.refresh_main_table()
-                    self.learn_symbols()
-            except (json.JSONDecodeError, TypeError, KeyError) as e:
-                logging.error(f"CRITICAL: {self.db_file} is corrupted! Initiating Failover. Error: {e}")
-                self.recover_from_backup()
-            except Exception as e:
-                logging.error(f"Unexpected error during file load: {e}", exc_info=True)
+        """Load formulas from SQLite database, checking both possible locations."""
+        try:
+            # First, try to load from the current database
+            formulas = self.db_manager.get_all_formulas()
+            
+            # If no formulas found, try to migrate from other locations
+            if not formulas:
+                self._migrate_from_other_locations()
+                # Try loading again after migration
+                formulas = self.db_manager.get_all_formulas()
+            
+            # Convert to the expected format for the application
+            self.master_data = {}
+            for formula in formulas:
+                # Convert SQLite format to the expected main_info format
+                main_info = [
+                    formula['id'],
+                    formula['formula_text'],
+                    formula['field'],
+                    formula['topic'],
+                    formula['sub_topic']
+                ]
+                
+                # Create the data structure expected by the application
+                formula_data = {
+                    "main_info": main_info,
+                    "variables": formula['variables']
+                }
+                
+                self.master_data[formula['id']] = formula_data
+            
+            self.refresh_main_table()
+            self.learn_symbols()
+            logging.info(f"Loaded {len(self.master_data)} formulas from SQLite database")
+            
+        except Exception as e:
+            logging.error(f"Failed to load from SQLite database: {e}", exc_info=True)
+            self.recover_from_backup()
+    
+    def _migrate_from_other_locations(self):
+        """Migrate data from other possible locations."""
+        for directory in self._get_migration_directories():
+            old_files = self._find_old_database_files(directory)
+            if self._attempt_migration_from_files(old_files):
+                return  # Success, stop migration
+
+    def _get_migration_directories(self):
+        """Get directories to migrate from, excluding current directory."""
+        return [directory for directory in self.all_data_dirs if directory != self.data_dir]
+
+    @staticmethod
+    def _find_old_database_files(directory):
+        """Find old database files in the given directory."""
+        old_db_files = [
+            os.path.join(directory, "clr_metadata.dat"),  # Current name in other location
+            os.path.join(directory, OLD_JSON_FILENAME),  # Old JSON name
+            os.path.join(directory, SCHEMA_FILENAME)  # Another old name
+        ]
+        return [file for file in old_db_files if os.path.exists(file)]
+
+    def _attempt_migration_from_files(self, old_files):
+        """Attempt to migrate from a list of old files. Returns True if successful."""
+        for old_file in old_files:
+            if self._migrate_single_file(old_file):
+                return True
+        return False
+
+    def _migrate_single_file(self, old_file):
+        """Migrate from a single old file. Returns True if successful."""
+        try:
+            logging.info(f"Found data file at {old_file}, attempting migration")
+            
+            if old_file.endswith('.json'):
+                return self._migrate_from_json_file(old_file)
+            else:
+                return self._migrate_from_sqlite_file(old_file)
+                
+        except Exception as e:
+            logging.warning(f"Failed to migrate from {old_file}: {e}")
+            return False
+
+    def _migrate_from_json_file(self, old_file):
+        """Migrate data from JSON file. Returns True if successful."""
+        success, count = self.db_manager.migrate_from_json(old_file)
+        if success:
+            logging.info(f"Migrated {count} formulas from {old_file}")
+            self._backup_migrated_file(old_file)
+            return True
+        return False
+
+    def _migrate_from_sqlite_file(self, old_file):
+        """Migrate data from SQLite file. Returns True if successful."""
+        temp_db = DatabaseManager(old_file)
+        try:
+            formulas = temp_db.get_all_formulas()
+            self._import_formulas_to_database(formulas)
+            logging.info(f"Migrated {len(formulas)} formulas from {old_file}")
+            self._backup_migrated_file(old_file)
+            return True
+        finally:
+            temp_db.close()
+
+    def _import_formulas_to_database(self, formulas):
+        """Import formulas to the main database."""
+        for formula in formulas:
+            self.db_manager.add_formula(
+                formula_text=formula['formula_text'],
+                field=formula['field'],
+                topic=formula['topic'],
+                sub_topic=formula['sub_topic'],
+                variables=formula['variables']
+            )
+
+    @staticmethod
+    def _backup_migrated_file(old_file):
+        """Create backup of successfully migrated file."""
+        backup_file = old_file + Sheet.MIGRATED_EXTENSION
+        os.rename(old_file, backup_file)
 
     def recover_from_backup(self):
         """Dynamically finds the NEWEST backup slot to restore from."""
@@ -2244,6 +3155,9 @@ class Sheet:
                 # Copy the newest backup to primary
                 shutil.copy2(newest_file, self.db_file)
                 logging.info("Recovery successful. Reloading data...")
+
+                # Reinitialize the database manager with the recovered file
+                self.db_manager = DatabaseManager(self.db_file)
 
                 # 2. Try to reload the system
                 self.load_from_file()
@@ -2337,47 +3251,67 @@ class SymbolLearner:
     # --------------------------------------------------
     # QUERYING
     # --------------------------------------------------
-    def best_match(
+    def all_matches(
             self,
             subject: str,
             topic: str,
             sub_topic: str,
             symbol: str,
-            min_confidence: int = 2
-    ) -> Optional[Tuple[str, str]]:
+            min_confidence: int = 1
+    ) -> List[Tuple[str, str]]:
         """
-        Resolution order:
-        1. Subject → Topic → Sub-Topic
-        2. Subject → Topic → _GLOBAL_
-        3. Subject → _GLOBAL_
+        Get ALL possible matches for a symbol across the hierarchy.
+        Returns up to 3 best matches sorted by confidence.
         """
 
-        def best_from(bucket: dict):
-            if symbol not in bucket:
-                return None
-            best = max(bucket[symbol], key=bucket[symbol].get)
-            return best if bucket[symbol][best] >= min_confidence else None
+        def all_from(symbol_bucket: dict, min_conf):
+            """Return ALL matches from bucket sorted by confidence (highest first)"""
+            if symbol not in symbol_bucket:
+                return []
+            matches = [(pair, conf) for pair, conf in symbol_bucket[symbol].items() if conf >= min_conf]
+            # Sort by confidence descending, then by pair for consistency
+            matches.sort(key=lambda x: (-x[1], x[0]))
+            return [pair for pair, conf in matches]
+
+        def add_matches_from_bucket(symbol_bucket, matches_list, seen_set):
+            """Helper to add matches from a bucket, avoiding duplicates"""
+            for match in all_from(symbol_bucket, min_confidence):
+                if match not in seen_set:
+                    matches_list.append(match)
+                    seen_set.add(match)
 
         subject_map = self.symbol_stats.get(subject)
         if not subject_map:
-            return None
+            return []
+
+        all_matches = []
+        seen = set()  # Avoid duplicates
+
+        # Define search hierarchy in order of priority
+        search_buckets = []
 
         topic_map = subject_map.get(topic)
         if topic_map:
             # 1️⃣ Sub-topic
             sub_map = topic_map.get(sub_topic)
             if sub_map:
-                result = best_from(sub_map)
-                if result:
-                    return result
+                search_buckets.append(sub_map)
 
             # 2️⃣ Topic global
-            result = best_from(topic_map.get("_GLOBAL_", {}))
-            if result:
-                return result
+            topic_global = topic_map.get("_GLOBAL_", {})
+            if topic_global:
+                search_buckets.append(topic_global)
 
         # 3️⃣ Subject global
-        return best_from(subject_map.get("_GLOBAL_", {}))
+        subject_global = subject_map.get("_GLOBAL_", {})
+        if subject_global:
+            search_buckets.append(subject_global)
+
+        # Process all buckets
+        for bucket in search_buckets:
+            add_matches_from_bucket(bucket, all_matches, seen)
+
+        return all_matches[:3]  # Return top 3 matches
 
     # --------------------------------------------------
     # INTERNAL UTIL
@@ -2386,6 +3320,56 @@ class SymbolLearner:
     def _increment(bucket: dict, symbol: str, pair: Tuple[str, str]) -> None:
         bucket.setdefault(symbol, {})
         bucket[symbol][pair] = bucket[symbol].get(pair, 0) + 1
+
+
+class TopMostToolTip(ToolTip):
+    """Extended ToolTip that ensures it's always on top and properly cleans up."""
+
+    def __init__(self, widget, text, bootstyle=None, wraplength=None, **kwargs):
+        # Set alpha and topmost in kwargs
+        kwargs["alpha"] = 0.95
+        self._is_topmost = True
+
+        # Initialize parent ToolTip
+        super().__init__(widget, text=text, bootstyle=bootstyle, wraplength=wraplength, **kwargs)
+
+        # Override the show_tip method to ensure topmost
+        self._original_show_tip = self.show_tip
+        self.show_tip = self._show_tip_topmost
+
+        # Bind window focus events to clean up
+        self.widget.winfo_toplevel().bind("<FocusOut>", self._cleanup_on_focus_loss)
+        self.widget.winfo_toplevel().bind("<Unmap>", self._cleanup_on_unmap)
+
+    def _show_tip_topmost(self, *_args):
+        """Override show_tip to ensure proper layering."""
+        self._original_show_tip()
+        if self.toplevel:
+            # Set topmost to ensure it appears above other windows
+            self.toplevel.attributes("-topmost", True)
+            # Ensure proper positioning after setting topmost
+            x = self.widget.winfo_pointerx() + 25
+            y = self.widget.winfo_pointery() + 10
+            self.toplevel.geometry(f"+{x}+{y}")
+
+    def _cleanup_on_focus_loss(self, _event=None):
+        """Cleanup tooltip when parent window loses focus."""
+        self.hide_tip()
+
+    def _cleanup_on_unmap(self, _event=None):
+        """Cleanup tooltip when parent window is minimized/hidden."""
+        self.hide_tip()
+
+    def hide_tip(self, *_args):
+        """Override hide_tip to ensure proper cleanup."""
+        if self.toplevel:
+            # Just destroy directly like the original - don't try to remove topmost
+            try:
+                self.toplevel.destroy()
+                self.toplevel = None
+            except (tk.TclError, AttributeError):
+                # Window might already be destroyed, just clear reference
+                self.toplevel = None
 
 
 class AwardPanel:
@@ -2402,11 +3386,11 @@ class AwardPanel:
 
         self.win = tb.Toplevel(self.parent.root)
         self.win.overrideredirect(True)
+        self.win.attributes("-topmost", True)  # Always topmost
         px = parent.root.winfo_x() + (parent.root.winfo_width() // 2) - 200
         py = parent.root.winfo_y() + (parent.root.winfo_height() // 2) - 375
         self.win.geometry(f"+{px}+{py}")
         self.win.geometry("550x650")
-        self.win.attributes("-topmost", True)
 
         style = tb.Style()
         style.configure('TNotebook', tabposition='n')
@@ -2451,15 +3435,16 @@ class AwardPanel:
 
         milestone_data = {
             2: "First Steps", 5: "Quick Learner", 10: "Beginner's Dozen",
-            20: "Class 10 Creator", 25: "Physics Pro", 30: "Structure Forming",
-            50: "Speed God", 75: "Workflow Integration", 100: "LEGENDARY",
-            120: "Advanced Behavior", 150: "t▒▒ ▒e▒n▒4▒▒▒y▒…",
+            20: "Early Progress", 25: "Physics Foundation", 30: "Structural Stability",
+            50: "Half Century", 75: "Workflow Integration", 100: "Complete Foundation",
+            120: "Advanced Usage", 150: "t▒▒ ▒e▒n▒4▒▒▒y▒…",
             151: "The Survivor",
-            175: "Observed Persistence",
-            200: "Double Century",
-            238: "Critical Mass",
-            300: "Planetary Scale",
-            400: "ABSOLUTE STABILITY"
+            175: "Deviation from Norm", 200: "Data Architecture",
+            238: "Critical Density", 300: "System Scale",
+            400: "Thermal Anomaly", 500: "Quantum Barrier",
+            600: "Neural Integration", 700: "Reality Distortion",
+            800: "Universal Pattern", 900: "Transcendent State",
+            999: "Event Horizon", 1000: "Absolute Mastery"
         }
 
         self._create_milestones_header(scroll_frame)
@@ -2486,13 +3471,19 @@ class AwardPanel:
         frame.pack(fill=X, pady=2)
 
         tb.Label(frame, text=icon, font=(FONT_FAMILY, 12), bootstyle=style).pack(side=LEFT, padx=(0, 10))
+
+        # Create main info text
         info_text = f"{display_title} — [{count if is_unlocked else q_string}]"
-        tb.Label(frame, text=info_text, font=("Consolas", 9), bootstyle=style).pack(side=LEFT)
+        info_label = tb.Label(frame, text=info_text, font=("Consolas", 9), bootstyle=style)
+        info_label.pack(side=LEFT)
 
     def _get_question_string(self):
         base_q_count = 3
         extra_q = (self.current_count // 30)
-        return "?" * (base_q_count + extra_q)
+        total_q = base_q_count + extra_q
+        # Limit to maximum of 8 question marks to prevent excessive display
+        max_q = 10
+        return "?" * min(total_q, max_q)
 
     def _get_milestone_display_info(self, count, title, is_unlocked, q_string):
         if count == 150:
@@ -2589,7 +3580,7 @@ class AwardPanel:
 
     def _display_awards_by_tier(self, scroll_frame, awards_by_tier):
         tiers = ["Common", "Rare", "Epic", "Mythic", "Secret"]
-        tier_colors = {"Common": "secondary", "Rare": "info", "Epic": "primary", "Mythic": "warning",
+        tier_colors = {"Common": "secondary", "Rare": "info", "Epic": "success", "Mythic": "warning",
                        "Secret": "danger"}
 
         for tier in tiers:
@@ -2709,6 +3700,9 @@ class StatsDashboard:
 
         # Making it wider (600px) as requested
         self.win.geometry("600x650")
+
+        # Always topmost regardless of main window state
+        self.win.attributes("-topmost", True)
 
         # Outer border matching settings style
         self.main_frame = tb.Frame(self.win, bootstyle=SECONDARY, padding=2)
@@ -3067,7 +4061,7 @@ class SettingsWindow:
             bootstyle="success-square-toggle"
         )
         cb.pack(anchor=W, pady=6)
-        ToolTip(cb, "Globally enable or disable the symbol suggestion system.")
+        TopMostToolTip(cb, "Globally enable or disable the symbol suggestion system.")
 
     def setup_autosave_page(self, master):
         content = tb.Frame(master, padding=10)
@@ -3119,7 +4113,6 @@ class SettingsWindow:
                     if cd.result:
                         self.parent.subject_colors[subject] = cd.result.hex
                         p.configure(background=cd.result.hex)
-                        self.apply_all()
 
                 return _pick
 
@@ -3139,7 +4132,6 @@ class SettingsWindow:
             return
         self.parent.subject_colors[sub] = self.selected_color
         self.refresh_color_list()
-        self.apply_all()
         self.new_sub_name.delete(0, END)
         _restore_placeholder(self.new_sub_name, self.color_placeholder)
         self.selected_color = "#ffffff"
@@ -3154,7 +4146,6 @@ class SettingsWindow:
         if confirm == "Yes" and subject_name in self.parent.subject_colors:
             del self.parent.subject_colors[subject_name]
             self.refresh_color_list()
-            self.apply_all()
             show_toast(f"Removed color for {subject_name}", bootstyle=WARNING)
 
     def start_move(self, event):
@@ -3167,6 +4158,9 @@ class SettingsWindow:
         self.win.geometry(f"+{x}+{y}")
 
     def apply_all(self):
+        # Track previous always-on-top state
+        previous_always_on_top = self.parent.always_on_top
+
         self.parent.root.style.theme_use(self.theme_cb.get())
 
         self.parent.auto_save_delay = int(self.save_delay.get()) * 1000
@@ -3181,7 +4175,11 @@ class SettingsWindow:
         self.parent.apply_row_colors()
         self.parent.update_preview()
         self.parent.root.attributes("-topmost", self.parent.always_on_top)
-        self.win.destroy()
+        self.parent.update_child_windows_topmost()  # Update child windows
+
+        # Only destroy settings window if always-on-top setting changed and is now True
+        if not previous_always_on_top and self.parent.always_on_top:
+            self.win.destroy()
 
 
 class MacroManagerWindow:
@@ -3395,19 +4393,11 @@ class MacroManagerWindow:
         # This calls the parent's logic to save config.json
         if hasattr(self.parent, 'save_config'):
             self.parent.save_config()
-        # Refresh the actual keypad if it's open
-        if self.parent.windows["keypad"] is not None:
+        # Refresh the keypad if it's open (preserves position)
+        if self.parent.keypad_manager.is_keypad_open():
             try:
-                keypad_win = self.parent.windows["keypad"].win
-                if keypad_win.winfo_exists():
-                    curr_x = keypad_win.winfo_x()
-                    curr_y = keypad_win.winfo_y()
-                    self.parent.toggle_keypad()  # Close
-                    self.parent.toggle_keypad()  # Re-open
-
-                    # Restore position
-                    if self.parent.windows["keypad"] is not None and self.parent.windows["keypad"].win.winfo_exists():
-                        self.parent.windows["keypad"].win.geometry(f"+{curr_x}+{curr_y}")
+                # Just update macros - position will be preserved
+                self.parent.keypad_manager.update_macros(self.parent.user_macros)
             except Exception as e:
                 logging.error(f"Error syncing keypad: {e}")
 
