@@ -2,18 +2,10 @@ import ttkbootstrap as tb
 from ttkbootstrap.constants import INFO
 from ttkbootstrap.widgets.toast import ToastNotification
 
-
-COMBOBOX_SELECTED_EVENT = "<<ComboboxSelected>>"
-KEY_RELEASE_EVENT = "<KeyRelease>"
-FOCUS_IN_EVENT = "<FocusIn>"
-FOCUS_OUT_EVENT = "<FocusOut>"
-RETURN_EVENT = '<Return>'
-BUTTON_1_EVENT = "<Button-1>"
-BUTTON_PRESS_1_EVENT = "<ButtonPress-1>"
-B1_MOTION_EVENT = "<B1-Motion>"
+from constants import TOAST_BASE_OFFSET, TOAST_SPACING, TOAST_DURATION
 
 
-def show_toast(message, bootstyle=INFO, duration=3000):
+def show_toast(message, bootstyle=INFO, duration=TOAST_DURATION):
     """Show a toast notification with the given message."""
     toast = ToastNotification(
         title="Formula Sheet",
@@ -28,8 +20,8 @@ class ToastManager:
     def __init__(self):
         self.root = None
         self.active = []
-        self.base_offset = 60
-        self.spacing = 80
+        self.base_offset = TOAST_BASE_OFFSET
+        self.spacing = TOAST_SPACING
 
     def bind_root(self, toast_root):
         self.root = toast_root

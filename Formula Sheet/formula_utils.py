@@ -10,7 +10,7 @@ from typing import Dict, List, Any, Tuple
 
 class FormulaUtils:
     """Utility class for formula-related operations."""
-    
+
     # Default configuration constants
     DEFAULT_CONFIG = {
         "theme": "darkly",
@@ -18,6 +18,7 @@ class FormulaUtils:
         "backups": True,
         "suggestions": True,
         "suggestion_strictness": "Balanced",
+        "max_suggestions": 3,
         "macros": [],
         "always_on_top": False,
         "subject_colors": {
@@ -26,7 +27,7 @@ class FormulaUtils:
             "Maths": "#af7ac5"
         }
     }
-    
+
     AWARD_THRESHOLDS = {
         "chemistry_10": ("The Alchemist", "Save 10 Chemistry formulas."),
         "physics_10": ("The Physicist", "Save 10 Physics formulas."),
@@ -41,7 +42,7 @@ class FormulaUtils:
         "maths_100": ("The Mathematician", "Save 100 Maths Formulas"),
         "maths_150": ("Maths God", "Save 150 Maths Formulas"),
     }
-    
+
     @staticmethod
     def extract_formula_params(main_info: List[str], variables: List[Dict[str, str]]) -> Dict[str, Any]:
         """
@@ -61,7 +62,7 @@ class FormulaUtils:
             'sub_topic': main_info[4] if len(main_info) > 4 else "_GENERAL_",
             'variables': variables
         }
-    
+
     @staticmethod
     def load_config(config_file: str) -> Dict[str, Any]:
         """
@@ -78,7 +79,7 @@ class FormulaUtils:
             with open(config_file, 'w') as f:
                 json.dump(FormulaUtils.DEFAULT_CONFIG, f, indent=4)
             return FormulaUtils.DEFAULT_CONFIG.copy()
-        
+
         try:
             with open(config_file) as f:
                 cfg = json.load(f)
@@ -90,11 +91,11 @@ class FormulaUtils:
             logging.error(f"Config file corrupted: {e}")
             # Return default config if corrupted
             return FormulaUtils.DEFAULT_CONFIG.copy()
-    
+
     @staticmethod
     def save_config(config_file: str, theme: str, auto_save_delay: int, enable_backups: bool,
-                   enable_suggestions: bool, suggestion_strictness: str, user_macros: List,
-                   always_on_top: bool, subject_colors: Dict[str, str]) -> None:
+                    enable_suggestions: bool, suggestion_strictness: str, max_suggestions: int,
+                    user_macros: List, always_on_top: bool, subject_colors: Dict[str, str]) -> None:
         """
         Save current configuration to file.
         
@@ -105,6 +106,7 @@ class FormulaUtils:
             enable_backups: Whether backups are enabled
             enable_suggestions: Whether suggestions are enabled
             suggestion_strictness: Suggestion strictness level
+            max_suggestions: Maximum number of suggestions to show
             user_macros: User-defined macros
             always_on_top: Whether window is always on top
             subject_colors: Subject color mapping
@@ -115,17 +117,18 @@ class FormulaUtils:
             "backups": enable_backups,
             "suggestions": enable_suggestions,
             "suggestion_strictness": suggestion_strictness,
+            "max_suggestions": max_suggestions,
             "macros": user_macros,
             "always_on_top": always_on_top,
             "subject_colors": subject_colors
         }
-        
+
         try:
             with open(config_file, 'w') as f:
                 json.dump(config, f, indent=4)
         except Exception as e:
             logging.error(f"Failed to save config: {e}")
-    
+
     @staticmethod
     def load_tip_state(tip_file: str) -> Dict[str, Any]:
         """
@@ -143,13 +146,13 @@ class FormulaUtils:
                     return json.load(f)
             except (json.JSONDecodeError, IOError) as e:
                 logging.error(f"Failed to load tip state: {e}")
-        
+
         # Return default tip state
         return {
             "show_tips": True,
             "last_seen": {}
         }
-    
+
     @staticmethod
     def save_tip_state(tip_file: str, tip_state: Dict[str, Any]) -> None:
         """
@@ -164,7 +167,7 @@ class FormulaUtils:
                 json.dump(tip_state, f, indent=4)
         except Exception as e:
             logging.error(f"Failed to save tip state: {e}")
-    
+
     @staticmethod
     def calculate_formula_statistics(master_data: Dict[int, Dict]) -> Tuple[Dict[str, int], set, bool]:
         """
@@ -179,21 +182,21 @@ class FormulaUtils:
         stats = {"Maths": 0, "Physics": 0, "Chemistry": 0}
         other_subjects = set()
         var_overload = False
-        
+
         for entry in master_data.values():
             # Check for variable overload (5+ variables)
             if len(entry.get("variables", [])) >= 5:
                 var_overload = True
-            
+
             # Count subjects
             subj = entry["main_info"][2]
             if subj in stats:
                 stats[subj] += 1
             elif subj:
                 other_subjects.add(subj)
-        
+
         return stats, other_subjects, var_overload
-    
+
     @staticmethod
     def get_awards_list(stats: Dict[str, int], other_subjects: set, var_overload: bool) -> List[Tuple[str, str, bool]]:
         """
@@ -208,7 +211,7 @@ class FormulaUtils:
             List of (title, description, unlocked) tuples
         """
         awards = []
-        
+
         # Add threshold-based awards
         for key, (title, desc) in FormulaUtils.AWARD_THRESHOLDS.items():
             subject, count = key.split('_')
@@ -216,16 +219,16 @@ class FormulaUtils:
             subject_key = subject.capitalize()
             unlocked = stats.get(subject_key, 0) >= count
             awards.append((title, desc, unlocked))
-        
+
         # Add special awards
         awards.extend([
             ("Variable Wrangler", "Save a formula with 5+ defined variables.", var_overload),
             ("The Pioneer", "Have 1 more subject other than Maths, Chemistry And Physics", len(other_subjects) == 1),
             ("The Rocketeer", "Have 2 more subject other than Maths, Chemistry And Physics", len(other_subjects) == 2),
         ])
-        
+
         return awards
-    
+
     @staticmethod
     def renumber_database(master_data: Dict[int, Dict]) -> Dict[int, Dict]:
         """
@@ -243,7 +246,7 @@ class FormulaUtils:
             data["main_info"][0] = index
             new_master[index] = data
         return new_master
-    
+
     @staticmethod
     def get_milestone_bootstyle(milestone_count: int, default_bootstyle: str = "info") -> str:
         """
@@ -270,7 +273,7 @@ class FormulaUtils:
             return "info"
         else:
             return default_bootstyle
-    
+
     @staticmethod
     def find_oldest_backup_slot(backup_slots: List[str]) -> str:
         """
@@ -284,18 +287,18 @@ class FormulaUtils:
         """
         oldest_file = backup_slots[0]
         oldest_time = float('inf')
-        
+
         for slot in backup_slots:
             if not os.path.exists(slot):
                 return slot  # Use empty slot first
-            
+
             mtime = os.path.getmtime(slot)
             if mtime < oldest_time:
                 oldest_time = mtime
                 oldest_file = slot
-        
+
         return oldest_file
-    
+
     @staticmethod
     def extract_subjects_from_data(master_data: Dict[int, Dict]) -> set:
         """
@@ -308,9 +311,10 @@ class FormulaUtils:
             Set of unique subjects
         """
         return {d['main_info'][2] for d in master_data.values() if d['main_info'][2]}
-    
+
     @staticmethod
-    def validate_formula_data(formula_text: str, field: str, topic: str = "", variable_unit: str = "") -> Tuple[bool, str]:
+    def validate_formula_data(formula_text: str, field: str, topic: str = "", variable_unit: str = "") -> Tuple[
+        bool, str]:
         """
         Validate formula entry data with improved rules.
         
@@ -332,18 +336,17 @@ class FormulaUtils:
         # Only check for obviously invalid content
         if len(formula_text) < 2:
             return False, "Formula seems too short. Please enter a complete formula."
-        
+
         # Field validation - always required
         if not field or not field.strip():
             return False, "Please select a Field/Subject."
-        
+
         # Topic validation - recommended but not strictly required
         if topic and not topic.strip():
             return False, "Topic cannot be empty if specified."
-        
+
         # Variable validation - only check if variables are being used
         if variable_unit and variable_unit.strip() and variable_unit == "Unit":
             return False, "Please enter a valid Variable unit."
-        
-        return True, ""
 
+        return True, ""

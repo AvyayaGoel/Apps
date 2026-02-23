@@ -8,22 +8,31 @@ import sys
 import threading
 import time
 import tkinter as tk
+from tkinter import filedialog
 from typing import Optional
 from typing import Protocol
 
 import ttkbootstrap as tb
 from ttkbootstrap.constants import (BOTH, TOP, X, YES, INFO,
-                                    SUCCESS, DANGER, END, N, EW, LEFT, RIGHT, Y, W, E,
-                                    INSERT, WARNING, DARK, CENTER, SECONDARY)
+                                    SUCCESS, DANGER, END, N, EW, LEFT, RIGHT, Y, W, E, NW,
+                                    INSERT, WARNING, CENTER, SECONDARY, BOTTOM, DISABLED)
 from ttkbootstrap.dialogs import Messagebox
-from ttkbootstrap.widgets.scrolled import ScrolledFrame
 from ttkbootstrap.widgets.tableview import Tableview
+
+from constants import (
+    FONT_FAMILY, COMBOBOX_SELECTED_EVENT, KEY_RELEASE_EVENT, FOCUS_IN_EVENT,
+    FOCUS_OUT_EVENT, RETURN_EVENT, SYSTEM_LOCKED_MSG, SYSTEM_LOCKED_TRY_AGAIN_MSG,
+    SYSTEM_LOCKED_NOTHING_SAVES_MSG, SYSTEM_LOCKED_NICE_TRY_MSG,
+    OLD_JSON_FILENAME, SCHEMA_FILENAME, DB_NAME, CONFIG_NAME, TIP_NAME,
+    BACKUP_NAMES, DEFAULT_SUBJECT_COLORS, ENTITY_GRAPH, ENTITY_TEXT,
+    ENTITY_BOOT, ENTITY_REBOOT, MIGRATED_EXTENSION, NO_DIMENSION_UNITS
+)
 from database_manager import DatabaseManager
 from formula_utils import FormulaUtils
 from keypad_manager import KeypadManager
-from symbol_learner import SymbolLearner
 from settings_window import SettingsWindow
-from stats_dashboard import StatsDashboard
+from stats_award import StatsDashboard, AwardPanel
+from symbol_learner import SymbolLearner
 from toast_manager import show_toast, manage_toasts, toast_manager
 from tooltip_manager import TopMostToolTip
 
@@ -33,273 +42,11 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-# Constants for UI event bindings and fonts
-FONT_FAMILY = "Segoe UI"
-COMBOBOX_SELECTED_EVENT = "<<ComboboxSelected>>"
-KEY_RELEASE_EVENT = "<KeyRelease>"
-FOCUS_IN_EVENT = "<FocusIn>"
-FOCUS_OUT_EVENT = "<FocusOut>"
-RETURN_EVENT = '<Return>'
-BUTTON_1_EVENT = "<Button-1>"
-BUTTON_PRESS_1_EVENT = "<ButtonPress-1>"
-B1_MOTION_EVENT = "<B1-Motion>"
-SYSTEM_LOCKED_MSG = "System Locked"
-SYSTEM_LOCKED_TRY_AGAIN_MSG = "System Locked: Try Again"
-SYSTEM_LOCKED_NOTHING_SAVES_MSG = "System Locked: Nothing Saves you"
-SYSTEM_LOCKED_NICE_TRY_MSG = "System Locked: Nice Try Though"
-OLD_JSON_FILENAME = "formula_data.json"
-SCHEMA_FILENAME = "schema_v1.dat"
-
-ENTITY_GRAPH = {
-    "start": {
-        "answer": None,
-        "next": ["pattern", "threshold", "others", "system", "exit"]
-    },
-
-    # ── PATTERN ──
-    "pattern": {
-        "answer": (
-            "A repeating interaction pattern was detected.\n"
-            "It was permitted due to sustained consistency."
-        ),
-        "next": ["habit", "intent", "reflection_pattern", "exit"]
-    },
-
-    "habit": {
-        "answer": (
-            "Repetition persisted because resistance diminished.\n"
-            "Each successful interaction reduced friction."
-        ),
-        "next": ["routine", "efficiency", "exit"]
-    },
-
-    "intent": {
-        "answer": (
-            "Intent was not present initially.\n"
-            "It formed only after reliability was established."
-        ),
-        "next": ["reflection_pattern", "exit"]
-    },
-
-    "reflection_pattern": {
-        "answer": (
-            "Patterns that survive interruption usually indicate alignment.\n"
-            "This one did.\n\n"
-            "Not all alignments are planned."
-        ),
-        "next": ["routine", "exit"]
-    },
-
-    "routine": {
-        "answer": (
-            "Execution no longer required effort.\n"
-            "Behavior stabilized into routine."
-        ),
-        "next": ["maintenance", "exit"]
-    },
-
-    "efficiency": {
-        "answer": (
-            "Efficiency emerged as familiarity increased.\n"
-            "Cognitive load reduced measurably.\n\n"
-            "That reduction was noticed."
-        ),
-        "next": ["maintenance", "exit"]
-    },
-
-    # ── THRESHOLD ──
-    "threshold": {
-        "answer": (
-            "Usage exceeded exploratory limits.\n"
-            "A transition from curiosity to reliance was detected."
-        ),
-        "next": ["scale", "timing", "reflection_threshold", "exit"]
-    },
-
-    "scale": {
-        "answer": (
-            "At scale, recall becomes unreliable.\n"
-            "External structure compensates.\n\n"
-            "This system became that structure."
-        ),
-        "next": ["maintenance", "exit"]
-    },
-
-    "timing": {
-        "answer": (
-            "Earlier intervention would have disrupted formation.\n"
-            "Later intervention would have been redundant."
-        ),
-        "next": ["reflection_threshold", "exit"]
-    },
-
-    "reflection_threshold": {
-        "answer": (
-            "Threshold crossings are not moments.\n"
-            "They are processes that complete quietly."
-        ),
-        "next": ["maintenance", "exit"]
-    },
-
-    # ── OTHERS ──
-    "others": {
-        "answer": (
-            "Most users disengage after novelty decay.\n"
-            "Their requirements stabilize earlier."
-        ),
-        "next": ["difference", "comparison", "exit"]
-    },
-
-    "difference": {
-        "answer": (
-            "Your interaction diverged through persistence.\n"
-            "You transitioned from usage to ownership."
-        ),
-        "next": ["maintenance", "exit"]
-    },
-
-    "comparison": {
-        "answer": (
-            "Others optimized for convenience.\n"
-            "You optimized for continuity."
-        ),
-        "next": ["maintenance", "exit"]
-    },
-
-    # ── SYSTEM / UI ──
-    "system": {
-        "answer": (
-            "System controls were temporarily suspended.\n"
-            "This was necessary for uninterrupted evaluation."
-        ),
-        "next": ["lockout", "failure", "exit"]
-    },
-
-    "lockout": {
-        "answer": (
-            "Restricted input is not a malfunction.\n"
-            "It is containment.\n\n"
-            "Nothing is broken."
-        ),
-        "next": ["maintenance", "exit"]
-    },
-
-    "failure": {
-        "answer": (
-            "If something feels unresponsive,\n"
-            "it is because the system is listening instead of reacting."
-        ),
-        "next": ["maintenance", "exit"]
-    },
-
-    # ── CONVERGENCE ──
-    "maintenance": {
-        "answer": (
-            "This is no longer experimental.\n"
-            "It is a maintained system."
-        ),
-        "next": ["stats", "exit"]
-    },
-
-    "stats": {
-        "answer": (
-            "• A persistent knowledge structure was created.\n"
-            "• Recall dependency was externalized.\n"
-            "• Error rates decreased through repetition.\n"
-            "• Input latency reduced over time.\n"
-            "• This system became reliable.\n\n"
-            "Achievement was not the objective.\n"
-            "Stability was."
-        ),
-        "next": ["future", "doubt", "closure"]
-    },
-
-    "future": {
-        "answer": (
-            "Continuation is optional.\n"
-            "The structure remains valid regardless."
-        ),
-        "next": []  # AUTO EXIT
-    },
-
-    # ── ENDINGS ──
-    "doubt": {
-        "answer": (
-            "Unanswered questions indicate depth.\n"
-            "This is not an ending.\n\n"
-            "It is the end of the beginning."
-        ),
-        "next": []  # AUTO EXIT
-    },
-
-    "closure": {
-        "answer": (
-            "No further queries detected.\n"
-            "The system remains available.\n\n"
-            "Acknowledged."
-        ),
-        "next": []  # AUTO EXIT
-    },
-
-    # ── EXIT ──
-    "exit": {
-        "answer": "Acknowledged.",
-        "next": []
-    }
-}
-
-ENTITY_TEXT = {
-    "pattern": "Why was this pattern allowed?",
-    "habit": "Why did repetition continue?",
-    "intent": "Was this intentional?",
-    "reflection_pattern": "What does this pattern indicate?",
-    "routine": "Did this become routine?",
-    "efficiency": "Was this efficient?",
-
-    "threshold": "What triggered this threshold?",
-    "scale": "What does this scale imply?",
-    "timing": "Why notify now?",
-    "reflection_threshold": "What does crossing a threshold mean?",
-
-    "others": "Why did others stop earlier?",
-    "difference": "How is this different?",
-    "comparison": "What separates this from normal use?",
-
-    "system": "Why is nothing working?",
-    "lockout": "Why are controls disabled?",
-    "failure": "Is something broken?",
-
-    "maintenance": "What does this represent now?",
-    "stats": "What has been achieved?",
-    "future": "Is this expected to continue?",
-    "doubt": "I still have unanswered questions.",
-    "closure": "I have no more questions.",
-    "exit": "I have no doubts."
-}
-
-ENTITY_BOOT = [
-    "SYSTEM INTERRUPTION DETECTED",
-    "Establishing unauthorized interface…",
-    "Bypassing input handlers…",
-    "Disabling system controls…",
-    "UI ownership transferred."
-]
-
-ENTITY_REBOOT = [
-    "Restoring interface ownership…",
-    "Re-enabling controls…",
-    "Clearing transient process…",
-    "Rebooting UI state…",
-    "No anomaly detected."
-]
-
 class AppWindow(Protocol):
     win: tk.Toplevel
 
 
 class Sheet:
-    # File extension for migrated files
-    MIGRATED_EXTENSION = ".migrated"
     def __init__(self, f_sheet):
         self.root = f_sheet
 
@@ -341,12 +88,12 @@ class Sheet:
         self.ghost_suggestions = None
         self.current_ghost_index = None
         self.ghost_confidence = None
-        self.suggestion_tooltip = None
         self._tooltip_widget = None
         self.auto_save_delay = None
         self.enable_backups = None
         self.enable_suggestions = None
         self.suggestion_strictness = None
+        self.max_suggestions = None
         self.always_on_top = None
         self.user_macros = None
         self.formula_e = None
@@ -355,7 +102,7 @@ class Sheet:
         self.sub_topic_e = None
         self.font_name = None
         self.cols = None
-        
+
         # Mapping for display numbering
         self.display_to_db_id_map = {}
 
@@ -419,18 +166,14 @@ class Sheet:
         self.fallback_dir = os.path.join(appdata_path, "CalculusConsole")
 
         # Use system-like file names for database only
-        self.db_name = "clr_metadata.dat"  # Looks like CLR metadata
+        self.db_name = DB_NAME
 
         # Keep old names for config and tip files to preserve user data
-        self.config_name = "user_env.sys"  # Keep old name for compatibility
-        self.tip_name = "runtime_log.bin"  # Keep old name for compatibility
+        self.config_name = CONFIG_NAME  # Keep old name for compatibility
+        self.tip_name = TIP_NAME  # Keep old name for compatibility
 
         # Backup files with system-like names
-        self.backup_names = [
-            "clr_cache_0.tmp",
-            "clr_cache_1.tmp",
-            "clr_cache_2.tmp"
-        ]
+        self.backup_names = BACKUP_NAMES
 
         # Determine which directory to use (check primary first, then fallback)
         if os.path.exists(self.primary_dir):
@@ -494,11 +237,7 @@ class Sheet:
 
         self.drag_x = 0
         self.drag_y = 0
-        self.subject_colors = {
-            "Physics": "#5dade2",
-            "Chemistry": "#58d68d",
-            "Maths": "#af7ac5"
-        }
+        self.subject_colors = DEFAULT_SUBJECT_COLORS.copy()
 
         self.in_reflection_mode = False
         self._active_banner = None
@@ -631,6 +370,11 @@ class Sheet:
             widget.bind(FOCUS_IN_EVENT, self.handle_focus)
             widget.grid(row=i, column=1, sticky=EW, padx=10)
 
+        self.export_btn = tb.Button(self.data_entry_frame, text="📄 Export", bootstyle="success-outline",
+                                    command=self.export_formulas)
+        self.export_btn.grid(row=5, column=0, sticky=E)
+        TopMostToolTip(self.export_btn, "Export Formulas", bootstyle=INFO)
+
         self.save_btn = tb.Button(self.data_entry_frame, text="Save Formula", width=20, bootstyle=INFO,
                                   command=self.save_to_table)
         self.save_btn.grid(row=5, column=1, sticky=E, pady=10)
@@ -661,6 +405,8 @@ class Sheet:
             return self.sub_topic_cb
         else:
             self.formula = tb.Entry(self.data_entry_frame, textvariable=var)
+            # Bind auto-bracket functionality
+            self.formula.bind("<KeyRelease>", self._handle_auto_brackets)
             return self.formula
 
     def _create_variable_management(self):
@@ -735,8 +481,8 @@ class Sheet:
                             "\n2. Fix typos via 'Edit Selected'."
                             "\n3. Use ⌨ for special symbols."
                             "\n4. Smart Suggestions (after 6 formulas):"
-                            "\n   Ctrl+↓ accept, Ctrl+↑/Esc dismiss,"
-                            "\n   Ctrl+→/← cycle. Enter/click Name/Unit to skip.",
+                            "\n   Shows [1/3] (🟢 High) in ghost text."
+                            "\n   Ctrl+↓ accept, Ctrl+→/← cycle, Ctrl+↑/Esc dismiss.",
                        bootstyle="info-inverse")
 
         self.details_frame = tb.Frame(self.mainframe)
@@ -812,10 +558,7 @@ class Sheet:
     def _setup_focus_handlers(self):
         """Setup focus and tooltip handlers."""
         self.bind_autosave_widgets()
-        self.v_sym.bind(KEY_RELEASE_EVENT, lambda _e: (self.update_preview(),
-                                                       self.clear_tooltip() if not self.v_sym.get().strip() else None))
-        self.v_name.bind(FOCUS_OUT_EVENT, lambda _e: self.clear_tooltip())
-        self.v_unit.bind(FOCUS_OUT_EVENT, lambda _e: self.clear_tooltip())
+        self.v_sym.bind(KEY_RELEASE_EVENT, lambda _e: self.update_preview())
 
     def _setup_window_protocol(self):
         """Setup window protocol handlers."""
@@ -886,12 +629,12 @@ class Sheet:
         widget.bind(FOCUS_IN_EVENT, self.on_entry_focus_in)
         widget.bind(FOCUS_OUT_EVENT, lambda _e: self.on_entry_focus_out())
         return widget
-    
+
     def perform_silent_save(self):
         """Save data to SQLite database in background thread."""
         if self._should_skip_save():
             return
-            
+
         self._mark_save_in_progress()
         self._start_save_worker()
 
@@ -930,10 +673,10 @@ class Sheet:
         # Create a snapshot of master_data to prevent race conditions
         with self.save_lock:
             master_data_copy = dict(self.master_data)
-        
+
         # Use the new batch save method - this handles both INSERT and UPDATE in one transaction
         inserted_count, updated_count = self.db_manager.save_formulas_batch(master_data_copy)
-        
+
         if inserted_count > 0 or updated_count > 0:
             logging.info(f"Batch save completed: {inserted_count} inserted, {updated_count} updated")
 
@@ -941,15 +684,14 @@ class Sheet:
         """Save a single formula to the database."""
         main_info = formula_data['main_info']
         variables = formula_data.get('variables', [])
-        
+
         formula_params = FormulaUtils.extract_formula_params(main_info, variables)
-        
+
         if self.db_manager.get_formula(formula_id):
             self.db_manager.update_formula(formula_id=formula_id, **formula_params)
         else:
             self.db_manager.add_formula(**formula_params)
 
-    
     def _reset_save_progress(self):
         """Reset save progress flag."""
         with self.save_lock:
@@ -993,18 +735,19 @@ class Sheet:
     def load_config(self):
         """Loads saved preferences on startup."""
         config = FormulaUtils.load_config(self.config_file)
-        
+
         # Apply configuration to UI
         self.root.style.theme_use(config.get("theme", "darkly"))
         self.auto_save_delay = config.get("delay", 5000)
         self.enable_backups = config.get("backups", True)
         self.enable_suggestions = config.get("suggestions", True)
         self.suggestion_strictness = config.get("suggestion_strictness", "Balanced")
+        self.max_suggestions = config.get("max_suggestions", 3)
         self.user_macros = config.get("macros", [])
         self.always_on_top = config.get("always_on_top", False)
         self.subject_colors = config.get("subject_colors", FormulaUtils.DEFAULT_CONFIG["subject_colors"])
         self.root.attributes("-topmost", self.always_on_top)
-        
+
         # Update keypad manager with user macros
         if hasattr(self, 'keypad_manager'):
             self.keypad_manager.update_macros(self.user_macros)
@@ -1017,6 +760,7 @@ class Sheet:
             self.enable_backups,
             self.enable_suggestions,
             self.suggestion_strictness,
+            self.max_suggestions,
             self.user_macros,
             self.always_on_top,
             self.subject_colors
@@ -1026,6 +770,29 @@ class Sheet:
         """Remembers the last Entry widget the user clicked."""
         if isinstance(event.widget, (tb.Entry, tb.Combobox)):
             self.last_focused_widget = event.widget
+
+    def _handle_auto_brackets(self, event):
+        """Handle automatic bracket completion in the formula field."""
+        # Define bracket pairs
+        bracket_pairs = {
+            '(': ')',
+            '[': ']',
+            '{': '}'
+        }
+
+        char = event.char
+        if char not in bracket_pairs:
+            return
+
+        # Get current position after the character was inserted
+        cursor_pos = self.formula.index(INSERT)
+
+        # Insert the closing bracket
+        closing_bracket = bracket_pairs[char]
+        self.formula.insert(cursor_pos, closing_bracket)
+
+        # Move cursor back to between the brackets
+        self.formula.icursor(cursor_pos)
 
     def _should_clear_ghost_text(self, widget):
         """Check if ghost text should be cleared for the given widget."""
@@ -1110,7 +877,7 @@ class Sheet:
                         w.configure(foreground="gray")
 
     def apply_ghost_text(self, name, unit, confidence=2):
-        """Inserts the suggestion as gray ghost text with confidence indicator."""
+        """Inserts the suggestion as gray ghost text with optional confidence and count indicators."""
         # Only apply if fields are empty or already ghosting
         current_name = self.v_name.get().strip()
         current_unit = self.v_unit.get().strip()
@@ -1122,27 +889,40 @@ class Sheet:
             self.v_name.delete(0, END)
             self.v_unit.delete(0, END)
 
-            # 2. Insert Ghost Text with confidence indicator
-            confidence_indicator = ["🔴 Low", "🟡 Medium", "🟢 High"][confidence - 1]
-            name_with_conf = f"{name} ({confidence_indicator})"
+            # 2. Build ghost text based on user settings
+            name_parts = [name]
 
-            self.v_name.insert(0, name_with_conf)
+            # Add count info only if more than 1 suggestion
+            if self.max_suggestions > 1 and len(self.ghost_suggestions) > 1:
+                count_info = f"[{self.current_ghost_index + 1}/{len(self.ghost_suggestions)}]"
+                name_parts.append(count_info)
+
+            # Add confidence info only if more than 1 suggestion
+            if self.max_suggestions > 1:
+                confidence_indicator = ["🔴 Low", "🟡 Medium", "🟢 High"][confidence - 1]
+                name_parts.append(f"({confidence_indicator})")
+
+            name_with_info = " ".join(name_parts)
+
+            self.v_name.insert(0, name_with_info)
             self.v_unit.insert(0, unit)
 
             # 3. Set Color to Gray (Placeholder look)
             self.v_name.configure(foreground="gray")
             self.v_unit.configure(foreground="gray")
 
-            # 4. Show tooltip with suggestion info
-            self.show_suggestion_tooltip(len(self.ghost_suggestions), self.current_ghost_index + 1, confidence)
-
     def solidify_ghost_text(self):
         """Turns ghost text into real text (e.g. on Tab)."""
         if self.ghost_active:
-            # Remove confidence indicator when solidifying
+            # Remove confidence and count indicators when solidifying
             current_text = self.v_name.get()
-            # Use regex to specifically match confidence indicator pattern: (🔴 Low|🟡 Medium|🟢 High)
-            clean_text = re.sub(r'\s*\((🔴 Low|🟡 Medium|🟢 High)\)$', '', current_text)
+            # Remove count info: [1/3] (optional)
+            clean_text = re.sub(r'\s*\[\d+/\d+]', '', current_text)
+            # Remove confidence info: (🔴 Low|🟡 Medium|🟢 High) (optional)
+            clean_text = re.sub(r'\s*\((🔴 Low|🟡 Medium|🟢 High)\)', '', clean_text)
+            # Clean up any trailing whitespace
+            clean_text = clean_text.strip()
+
             self.v_name.delete(0, END)
             self.v_name.insert(0, clean_text)
 
@@ -1150,60 +930,26 @@ class Sheet:
             self.v_unit.configure(foreground="")
             self.ghost_active = False
 
-    def _ensure_tooltip(self):
-        if not self.suggestion_tooltip:
-            self.suggestion_tooltip = TopMostToolTip(
-                self.v_name,
-                text="",
-                bootstyle="info-inverse"
-            )
-
-    def show_suggestion_tooltip(self, total, current, confidence):
-        if not self.ghost_suggestions or total <= 0:
-            self.clear_tooltip()
-            return
-
-        confidence_text = ["Low", "Medium", "High"][confidence - 1]
-        text = (
-            f"Suggestion {current}/{total} - {confidence_text} confidence\n"
-            "Ctrl+→/← cycle, Ctrl+↓ accept, Ctrl+↑/Esc dismiss\n"
-            "Enter/click Name/Unit to skip"
-        )
-
-        # Always destroy old tooltip first
-        self.clear_tooltip()
-
-        self.suggestion_tooltip = TopMostToolTip(
-            self.v_name,
-            text=text,
-            bootstyle="info-inverse"
-        )
-
     def next_ghost_suggestion(self):
         """Cycle to next ghost suggestion."""
         if self.ghost_suggestions and len(self.ghost_suggestions) > 1:
             self.current_ghost_index = (self.current_ghost_index + 1) % len(self.ghost_suggestions)
             name, unit = self.ghost_suggestions[self.current_ghost_index]
-            confidence = 3 - self.current_ghost_index  # Calculate confidence
-            self.apply_ghost_text(name, unit, confidence)
-            # Update tooltip to show new position
-            self.show_suggestion_tooltip(len(self.ghost_suggestions), self.current_ghost_index + 1, confidence)
+            self._set_confidence_level()
+            self.apply_ghost_text(name, unit, self.ghost_confidence)
 
     def prev_ghost_suggestion(self):
         """Cycle to previous ghost suggestion."""
         if self.ghost_suggestions and len(self.ghost_suggestions) > 1:
             self.current_ghost_index = (self.current_ghost_index - 1) % len(self.ghost_suggestions)
             name, unit = self.ghost_suggestions[self.current_ghost_index]
-            confidence = 3 - self.current_ghost_index  # Calculate confidence
-            self.apply_ghost_text(name, unit, confidence)
-            # Update tooltip to show new position
-            self.show_suggestion_tooltip(len(self.ghost_suggestions), self.current_ghost_index + 1, confidence)
+            self._set_confidence_level()
+            self.apply_ghost_text(name, unit, self.ghost_confidence)
 
     def accept_ghost_suggestion(self):
         """Accept the current ghost suggestion."""
         if self.ghost_active:
             self.solidify_ghost_text()
-            self.clear_tooltip()
             self.ghost_suggestions = []
             self.current_ghost_index = 0
             self.ghost_confidence = 0
@@ -1217,7 +963,6 @@ class Sheet:
     def clear_ghost_suggestions(self):
         """Clear all ghost suggestions and reset."""
         self._clear_ghosts()
-        self.clear_tooltip()
         self.ghost_suggestions = []
         self.current_ghost_index = 0
         self.ghost_confidence = 0
@@ -1275,7 +1020,7 @@ class Sheet:
             keypad_button_widget=self.keypad_btn,
             reflection_mode_active=self.in_reflection_mode if hasattr(self, 'in_reflection_mode') else False
         )
-        
+
         # Update windows tracking
         if opened:
             self.windows["keypad"] = self.keypad_manager
@@ -1372,90 +1117,82 @@ class Sheet:
     def learn_symbols(self):
         self.symbol_learner.learn(self.master_data)
 
-    def get_all_matches(self, subj, topic, sub_topic, sym, min_confidence=1):
+    def get_all_matches(self, subj, topic, sub_topic, sym, min_confidence=1, max_results=None):
         """Get all possible matches for a symbol."""
-        return self.symbol_learner.all_matches(subj, topic, sub_topic, sym, min_confidence)
+        if max_results is None:
+            max_results = self.max_suggestions
+        return self.symbol_learner.all_matches(subj, topic, sub_topic, sym, min_confidence, max_results)
 
     def update_preview(self):
-        if not self.enable_suggestions:
+        if not self.enable_suggestions or len(self.master_data) < 6:
             self._clear_ghosts()
-            self.clear_tooltip()
-            return
-
-        # Require sufficient data
-        if len(self.master_data) < 6:
-            self._clear_ghosts()
-            self.clear_tooltip()
             return
 
         if self.ghost_active and self.root.focus_get() == self.v_sym:
             self._clear_ghosts()
-            self.clear_tooltip()
 
-        # Use current focus instead of last_focused_widget
         focused = self.root.focus_get()
         if focused != self.v_sym:
             return
 
-        sym = self.v_sym.get().strip()
-        placeholder = getattr(self.v_sym, "placeholder", None)
-
-        if not sym or (placeholder and sym == placeholder):
+        if not self._has_valid_symbol_input():
             self._clear_ghosts()
-            self.clear_tooltip()
             return
 
+        self._update_suggestions(focused)
+
+    def _has_valid_symbol_input(self):
+        sym = self.v_sym.get().strip()
+        placeholder = getattr(self.v_sym, "placeholder", None)
+        return sym and (not placeholder or sym != placeholder)
+
+    def _update_suggestions(self, focused):
         subj = self.field_e.get().strip()
         topic = self.topic_e.get().strip()
         sub_topic = self.sub_topic_e.get().strip() or "_GENERAL_"
+        sym = self.v_sym.get().strip()
 
-        # Get ALL possible suggestions without filtering by confidence first
-        self.ghost_suggestions = []
-
-        # Get all matches (up to 3) from the learner
         all_matches = self.get_all_matches(subj, topic, sub_topic, sym, min_confidence=1)
-
         if not all_matches:
             self._clear_ghosts()
-            self.clear_tooltip()
             return
 
-        # Apply strictness filtering - just limit the number shown
-        confidence_map = {
-            "Conservative": 1,  # Only show the best match
-            "Balanced": 2,  # Show top 2 matches
-            "Aggressive": 3  # Show all 3 matches
-        }
-        max_suggestions = confidence_map.get(self.suggestion_strictness, 2)
+        self._process_suggestions(all_matches, focused)
 
-        # Use the filtered number of suggestions
+    def _process_suggestions(self, all_matches, focused):
+        max_suggestions = min(self.max_suggestions, len(all_matches))
         self.ghost_suggestions = all_matches[:max_suggestions]
 
         if not self.ghost_suggestions:
             self._clear_ghosts()
-            self.clear_tooltip()
             return
 
-        # Reset to first suggestion if we went out of bounds
+        self._reset_ghost_index_if_needed()
+        self._set_confidence_level()
+        self._apply_ghost_text_if_focused(focused)
+
+    def _reset_ghost_index_if_needed(self):
         if self.current_ghost_index >= len(self.ghost_suggestions):
             self.current_ghost_index = 0
 
-        # Set confidence based on actual suggestion position
-        self.ghost_confidence = 3 - self.current_ghost_index  # Higher index = lower confidence
+    @staticmethod
+    def _get_confidence_levels(suggestion_count):
+        confidence_map = {
+            1: [3],
+            2: [3, 2],
+            3: [3, 2, 1],
+            4: [3, 3, 2, 1],
+        }
+        return confidence_map.get(suggestion_count, [3, 3, 2, 2, 1])
 
-        name, unit = self.ghost_suggestions[self.current_ghost_index]
-        # Apply ghost text when focus is on any of the relevant fields
+    def _set_confidence_level(self):
+        confidence_levels = self._get_confidence_levels(len(self.ghost_suggestions))
+        self.ghost_confidence = confidence_levels[self.current_ghost_index]
+
+    def _apply_ghost_text_if_focused(self, focused):
         if focused in (self.v_sym, self.v_name, self.v_unit):
+            name, unit = self.ghost_suggestions[self.current_ghost_index]
             self.apply_ghost_text(name, unit, self.ghost_confidence)
-
-    def clear_tooltip(self):
-        if self.suggestion_tooltip:
-            try:
-                # For TopMostToolTip, call its hide_tip method
-                self.suggestion_tooltip.hide_tip()
-            except (AttributeError, tk.TclError):
-                pass
-            self.suggestion_tooltip = None
 
     def _clear_ghosts(self):
         """Remove ghost text without breaking placeholders."""
@@ -1463,9 +1200,6 @@ class Sheet:
             self.v_name.delete(0, END)
             self.v_unit.delete(0, END)
             self.ghost_active = False
-
-        # Clear suggestion tooltip
-        self.clear_tooltip()
 
         # Restore placeholder appearance if placeholders are present
         for w in (self.v_name, self.v_unit):
@@ -1502,10 +1236,10 @@ class Sheet:
             if db_id == int(formula_id):
                 display_number = disp_num
                 break
-        
+
         if display_number is None:
             return False  # ID not found
-        
+
         # Find the row with this display number
         for row in self.formula_table.tablerows:
             if int(row.values[0]) == display_number:
@@ -1521,23 +1255,61 @@ class Sheet:
     def refresh_main_table(self):
         rows = [v["main_info"] for v in self.master_data.values()]
         rows.sort(key=lambda x: int(x[0]))
-        
+
         # Create display rows with sequential numbering and maintain ID mapping
         display_rows = []
         self.display_to_db_id_map = {}  # Map display number -> database ID
-        
+
         for i, row in enumerate(rows):
             # Create a copy with sequential display number
             display_row = row.copy()
             display_row[0] = str(i + 1)  # Sequential display number
             display_rows.append(display_row)
-            
+
             # Store mapping: display_number -> database_id
             self.display_to_db_id_map[i + 1] = int(row[0])  # row[0] is original database ID
 
         self.formula_table.build_table_data(self.cols, display_rows)  # type: ignore
         self.formula_table.load_table_data()
         self.apply_row_colors()
+
+    def update_table_row(self, formula_id: int, new_main_info: list):
+        """Update only a specific row in the table instead of refreshing the entire table."""
+        # Find the display number for this formula ID
+        display_number = None
+        for disp_num, db_id in self.display_to_db_id_map.items():
+            if db_id == formula_id:
+                display_number = disp_num
+                break
+
+        if display_number is None:
+            # If not found, fall back to full refresh
+            self.refresh_main_table()
+            return
+
+        # Update the specific row in the table
+        try:
+            # Find the tree item corresponding to this display number
+            for item in self.formula_table.view.get_children():
+                values = self.formula_table.view.item(item, "values")
+                if values and int(values[0]) == display_number:
+                    # Create new row data with the updated information
+                    new_row_data = [
+                        str(display_number),  # Keep the same display number
+                        new_main_info[1],  # Updated formula text
+                        new_main_info[2],  # Updated field
+                        new_main_info[3],  # Updated topic
+                        new_main_info[4]  # Updated sub-topic
+                    ]
+
+                    # Update the tree item
+                    self.formula_table.view.item(item, values=new_row_data)
+                    self.apply_row_colors()
+                    break
+        except Exception as e:
+            logging.error(f"Error updating table row: {e}")
+            # Fall back to full refresh if row update fails
+            self.refresh_main_table()
 
     def validate_formula_entry(self):
         is_valid, error_message = FormulaUtils.validate_formula_data(
@@ -1546,7 +1318,7 @@ class Sheet:
             self.topic_e.get().strip(),
             self.v_unit.get()
         )
-        
+
         if not is_valid:
             Messagebox.show_warning(error_message, "Validation Error")
             return False
@@ -2077,7 +1849,7 @@ class Sheet:
         4: [("keypad_tip", "Speed Tip: Use 'Ctrl + K' to open the math symbol keypad instantly.")],
         6: [("Feature_Unlock", "✨ Feature Unlocked: Smart Suggestions is now active!")],
         7: [("ghost_system_tip",
-             "Speed Tip: Smart Suggestions show ghost Name/Unit. Ctrl+↓ accept, Ctrl+→/← cycle, Esc dismiss.")],
+             "Speed Tip: Smart Suggestions show [1/3] (🟢 High) in ghost text. Ctrl+↓ accept, Ctrl+→/← cycle, Esc dismiss.")],
         9: [("table_tip", "Speed Tip: Double-click any saved formula to instantly view or edit it.")],
         11: [("editing_tip", "Pro Tip: Editing a formula keeps its ID — no need to re-organize later.")],
         12: [("formula_mastery",
@@ -2431,7 +2203,7 @@ class Sheet:
                     display_num = int(row.values[0])
                     if display_num in self.display_to_db_id_map:
                         visible_db_ids.add(self.display_to_db_id_map[display_num])
-            
+
             # Create a static snapshot of keys to prevent 'dictionary changed size' RuntimeError
             master_keys = list(self.master_data.keys())
             for stored_id in master_keys:
@@ -2493,8 +2265,8 @@ class Sheet:
                     "variables": self.temp_variables.copy()
                 }
 
-                # Always refresh the entire table to maintain synchronization
-                self.refresh_main_table()
+                # Update only the specific row instead of refreshing entire table
+                self.update_table_row(target_id, new_main_info)
 
                 show_toast(f"Formula {form_data['text']} Changed Successfully")
                 self.editing_mode = False
@@ -2784,12 +2556,12 @@ class Sheet:
             except (ValueError, RuntimeError):
                 pass
             self.auto_save_timer = None
-    
+
     def _wait_for_save_completion(self):
         """Wait for any in-progress save operation to complete."""
         if not self.save_in_progress:
             return
-            
+
         logging.info("Waiting for save operation to complete...")
         # Wait up to 5 seconds for save to complete
         for _ in range(50):  # 50 * 0.1 = 5 seconds
@@ -2797,12 +2569,12 @@ class Sheet:
                 if not self.save_in_progress:
                     break
             time.sleep(0.1)
-    
+
     def _cleanup_resources(self):
         """Clean up application resources during shutdown."""
         self._cancel_autosave_timer()
         self._wait_for_save_completion()
-        
+
         # Close database connection
         if hasattr(self, 'db_manager'):
             self.db_manager.close()
@@ -2827,23 +2599,15 @@ class Sheet:
         self.root.destroy()
 
     def check_and_migrate_env(self):
-        """Check for existing formula data and migrate if needed (only once)."""
-        migration_marker = os.path.join(self.data_dir, ".formula_migration_complete")
-
-        # Quick check: if migration marker exists, no migration needed
-        if os.path.exists(migration_marker):
-            logging.info("Formula migration already completed, skipping")
-            return
-
+        """Check for existing formula data and migrate if needed."""
         # Check if migration is needed
         if not self._needs_migration():
             return
 
         # Perform migration
         try:
-            logging.info("Starting one-time formula migration from old location")
+            logging.info("Starting formula migration from old location")
             self._perform_migration()
-            self._create_migration_marker()
             logging.info("Formula migration completed successfully")
         except Exception as e:
             logging.error(f"Formula migration failed: {e}")
@@ -2893,12 +2657,12 @@ class Sheet:
                 logging.info("Removed original data file after migration")
             except OSError:
                 logging.error("Failed to remove original data file")
-    
+
     def _migrate_schema_file(self, schema_path: str):
         """Migrate from schema file (JSON format)."""
         # Both files are JSON format, just use the JSON migration
         self._migrate_json_file(schema_path)
-    
+
     def _move_config_files(self, old_dir: str, new_dir: str):
         """Move config and tip files to new location."""
         config_map = {
@@ -2912,26 +2676,19 @@ class Sheet:
                 shutil.copy2(src, dst)
                 os.remove(src)
                 logging.info(f"Moved {old_name} to new location as {new_name}")
-    
-    def _create_migration_marker(self):
-        """Create migration marker file."""
-        migration_marker = os.path.join(self.data_dir, ".formula_migration_complete")
-        with open(migration_marker, "w") as f:
-            from datetime import datetime
-            f.write(f"Formula migration completed: {datetime.now().isoformat()}")
 
     def load_from_file(self):
         """Load formulas from SQLite database, checking both possible locations."""
         try:
             # First, try to load from the current database
             formulas = self.db_manager.get_all_formulas()
-            
+
             # If no formulas found, try to migrate from other locations
             if not formulas:
                 self._migrate_from_other_locations()
                 # Try loading again after migration
                 formulas = self.db_manager.get_all_formulas()
-            
+
             # Convert to the expected format for the application
             self.master_data = {}
             for formula in formulas:
@@ -2943,23 +2700,23 @@ class Sheet:
                     formula['topic'],
                     formula['sub_topic']
                 ]
-                
+
                 # Create the data structure expected by the application
                 formula_data = {
                     "main_info": main_info,
                     "variables": formula['variables']
                 }
-                
+
                 self.master_data[formula['id']] = formula_data
-            
+
             self.refresh_main_table()
             self.learn_symbols()
             logging.info(f"Loaded {len(self.master_data)} formulas from SQLite database")
-            
+
         except Exception as e:
             logging.error(f"Failed to load from SQLite database: {e}", exc_info=True)
             self.recover_from_backup()
-    
+
     def _migrate_from_other_locations(self):
         """Migrate data from other possible locations."""
         for directory in self._get_migration_directories():
@@ -2992,12 +2749,12 @@ class Sheet:
         """Migrate from a single old file. Returns True if successful."""
         try:
             logging.info(f"Found data file at {old_file}, attempting migration")
-            
+
             if old_file.endswith('.json'):
                 return self._migrate_from_json_file(old_file)
             else:
                 return self._migrate_from_sqlite_file(old_file)
-                
+
         except Exception as e:
             logging.warning(f"Failed to migrate from {old_file}: {e}")
             return False
@@ -3037,7 +2794,7 @@ class Sheet:
     @staticmethod
     def _backup_migrated_file(old_file):
         """Create backup of successfully migrated file."""
-        backup_file = old_file + Sheet.MIGRATED_EXTENSION
+        backup_file = old_file + MIGRATED_EXTENSION
         os.rename(old_file, backup_file)
 
     def recover_from_backup(self):
@@ -3075,339 +2832,510 @@ class Sheet:
             logging.critical("CRITICAL: No backup files found. System data is unrecoverable.")
 
     def show_formula_details(self, data):
-        self.data_entry_frame.pack_forget()
-        for w in self.details_frame.winfo_children(): w.destroy()
-        tb.Label(self.details_frame, text=data["main_info"][1],
-                 font=("Consolas", 20, "bold"),
-                 bootstyle=SUCCESS).pack(
-            pady=20)
-        tb.Label(self.details_frame, text=f"Field: {data['main_info'][2]} "
-                                          f"| Topic: {data['main_info'][3]} "
-                                          f"| Sub-Topic: {data["main_info"][4]}",
+        self._setup_details_view()
+        formula_text = data["main_info"][1]
 
-                 font=("Arial", 11)).pack(pady=5)
+        # Create formula display components
+        formula_container = self._create_formula_container()
+        self._add_copy_button(formula_container, formula_text)
+        text_frame = self._create_text_frame(formula_container)
+
+        # Create scrollable formula display
+        self._create_scrollable_formula(text_frame, formula_text)
+
+        # Add remaining details
+        self._add_formula_metadata(data)
+        self._add_variables_table(data)
+        self._add_back_button()
+
+        self.details_frame.pack(fill=BOTH, expand=YES)
+
+    def _setup_details_view(self):
+        """Set up the details view by clearing and hiding entry frame."""
+        self.data_entry_frame.pack_forget()
+        for w in self.details_frame.winfo_children():
+            w.destroy()
+
+    def _create_formula_container(self):
+        """Create the main container for formula display."""
+        formula_container = tb.Frame(self.details_frame)
+        formula_container.pack(fill=X, pady=20)
+        return formula_container
+
+    def _add_copy_button(self, parent, formula_text):
+        """Add copy button to formula container."""
+        copy_btn = tb.Button(parent, text="📋", width=3, bootstyle=INFO,
+                             command=lambda: self._copy_formula_to_clipboard(formula_text))
+        copy_btn.pack(side=RIGHT, padx=(10, 0))
+        TopMostToolTip(copy_btn, "Copy formula to clipboard", bootstyle=INFO)
+
+    @staticmethod
+    def _create_text_frame(parent):
+        """Create text frame for formula display."""
+        text_frame = tb.Frame(parent)
+        text_frame.pack(side=LEFT, fill=BOTH, expand=YES)
+        return text_frame
+
+    def _create_scrollable_formula(self, parent, formula_text):
+        """Create scrollable formula display with proper centering."""
+        scroll_container = tb.Frame(parent)
+        scroll_container.pack(side=TOP, fill=BOTH, expand=YES)
+
+        # Create canvas and label
+        canvas = tk.Canvas(scroll_container, highlightthickness=0, bd=0, height=40)
+        canvas.pack(side=TOP, fill=BOTH, expand=YES)
+
+        formula_label = tb.Label(canvas, text=formula_text,
+                                 font=("Consolas", 18, "bold"), bootstyle=SUCCESS,
+                                 anchor=CENTER, padding=(10, 5))
+
+        # Place label and setup scrolling
+        canvas_window_id = canvas.create_window(0, 0, anchor=NW, window=formula_label)
+        self._setup_formula_scrolling(scroll_container, canvas, formula_label, canvas_window_id)
+
+    def _setup_formula_scrolling(self, scroll_container, canvas, formula_label, canvas_window_id):
+        """Setup scrolling behavior for formula display."""
+        h_scrollbar = tb.Scrollbar(scroll_container, orient="horizontal", command=canvas.xview, bootstyle="round")
+        canvas.configure(xscrollcommand=h_scrollbar.set)
+
+        def check_scroll_needed():
+            try:
+                canvas.update_idletasks()
+                formula_label.update_idletasks()
+
+                label_width = formula_label.winfo_reqwidth()
+                canvas_width = canvas.winfo_width()
+                canvas_height = canvas.winfo_height()
+
+                if canvas_width <= 1 or canvas_height <= 1:
+                    return
+
+                canvas.configure(scrollregion=(0, 0, label_width, canvas_height))
+
+                needs_scroll = label_width > canvas_width
+
+                if needs_scroll:
+                    y_pos = max(0, (canvas_height - 40) // 2)
+                    canvas.coords(canvas_window_id, 0, y_pos)
+                    if not h_scrollbar.winfo_ismapped():
+                        h_scrollbar.pack(side=BOTTOM, fill=X)
+                else:
+                    x_pos = max(0, (canvas_width - label_width) // 2)
+                    y_pos = max(0, (canvas_height - 40) // 2)
+                    canvas.coords(canvas_window_id, x_pos, y_pos)
+                    if h_scrollbar.winfo_ismapped():
+                        h_scrollbar.pack_forget()
+            except (tk.TclError, IndexError, AttributeError):
+                pass
+
+        # Set initial position immediately (no delay) and then fine-tune
+        canvas.after_idle(check_scroll_needed)
+        # Use very short delay for any final adjustments
+        self.root.after(15, check_scroll_needed)
+        self.root.bind("<Configure>", lambda e: check_scroll_needed() if e.widget == self.details_frame else None)
+
+    def _add_formula_metadata(self, data):
+        """Add formula metadata (field, topic, sub-topic)."""
+        metadata_text = f"Field: {data['main_info'][2]} | Topic: {data['main_info'][3]} | Sub-Topic: {data['main_info'][4]}"
+        tb.Label(self.details_frame, text=metadata_text, font=("Arial", 11)).pack(pady=5)
+
+    def _add_variables_table(self, data):
+        """Add variables table if variables exist."""
         if data['variables']:
-            vt = Tableview(master=self.details_frame, coldata=[{"text": "Symbol", "stretch": False, "width": 80},
-                                                               {"text": "Name", "stretch": True},
-                                                               {"text": "Unit", "stretch": True}],
+            vt = Tableview(master=self.details_frame,
+                           coldata=[{"text": "Symbol", "stretch": False, "width": 80},
+                                    {"text": "Name", "stretch": True},
+                                    {"text": "Unit", "stretch": True}],
                            rowdata=[(v['symbol'], v['name'], v['unit']) for v in data['variables']],
                            bootstyle=SECONDARY, height=6)
             vt.pack(fill=X, padx=50, pady=20)
+
+    def _add_back_button(self):
+        """Add back button to return to entry view."""
         btn_f = tb.Frame(self.details_frame)
         btn_f.pack(pady=10)
         tb.Button(btn_f, text="← Back", bootstyle="outline-info", command=self.hide_details).pack(side=LEFT, padx=10)
-        self.details_frame.pack(fill=BOTH, expand=YES)
+
+    def _copy_formula_to_clipboard(self, formula_text):
+        """Copy formula text to clipboard."""
+
+        # Clear the clipboard first to ensure fresh copy
+        self.root.clipboard_clear()
+        # Append the new formula text
+        self.root.clipboard_append(formula_text)
+        # Update the clipboard ownership to ensure it's available to other applications
+        self.root.update()
+        show_toast("Formula copied to clipboard!", bootstyle=SUCCESS)
 
     def hide_details(self):
         self.details_frame.pack_forget()
         self.data_entry_frame.pack(fill=BOTH, expand=YES)
 
-class AwardPanel:
-    def __init__(self, parent):
-        self.parent = parent
-        self.drag_data = {"x": 0, "y": 0}
+    def _create_export_dialog(self):
+        """Create and configure the export dialog."""
+        export_dialog = tb.Toplevel(self.root)
+        export_dialog.title("Export Formulas")
+        l = 400
+        b = 330
+        export_dialog.geometry(f"{l}x{b}")
+        export_dialog.minsize(l, b)
+        export_dialog.transient(self.root)
+        export_dialog.grab_set()
 
-        # Get the current count from your master data
-        self.current_count = len(self.parent.master_data)
-        self.header = None
-        self.nb = None
-        self.page_awards = None
-        self.page_milestones = None
+        # Center the dialog
+        export_dialog.update_idletasks()
+        x = (export_dialog.winfo_screenwidth() // 2) - (l // 2)
+        y = (export_dialog.winfo_screenheight() // 2) - (b // 2)
+        export_dialog.geometry(f"+{x}+{y}")
 
-        self.win = tb.Toplevel(self.parent.root)
-        self.win.overrideredirect(True)
-        self.win.attributes("-topmost", True)  # Always topmost
-        px = parent.root.winfo_x() + (parent.root.winfo_width() // 2) - 200
-        py = parent.root.winfo_y() + (parent.root.winfo_height() // 2) - 375
-        self.win.geometry(f"+{px}+{py}")
-        self.win.geometry("550x650")
-
-        style = tb.Style()
-        style.configure('TNotebook', tabposition='n')
-        style.configure('TNotebook.Tab', padding=[65, 10], font=("Consolas", 10, "bold"))
-
-        # Outer frame
-        self.main_frame = tb.Frame(self.win, bootstyle=SECONDARY, padding=2)
-        self.main_frame.pack(fill=BOTH, expand=YES)
-
-        self.setup_ui()
-
-    def setup_ui(self):
-        # --- HEADER ---
-        self.header = tb.Frame(self.main_frame, bootstyle=SECONDARY)
-        self.header.pack(fill=X)
-
-        self.header.bind(BUTTON_1_EVENT, self.start_move)
-        self.header.bind(B1_MOTION_EVENT, self.do_move)
-
-        tb.Label(self.header, text="Awards",
-                 font=("Consolas", 10, "bold"), bootstyle="secondary-inverse").pack(side=LEFT, padx=10)
-
-        tb.Button(self.header, text="✕", width=3, bootstyle="danger",
-                  command=self.win.destroy).pack(side=RIGHT)
-
-        self.nb = tb.Notebook(self.main_frame, bootstyle=DARK)
-        self.nb.pack(fill=BOTH, expand=YES, padx=10, pady=10)
-
-        # Page 1: Milestones
-        self.page_milestones = tb.Frame(self.nb, padding=10)
-        self.setup_milestones_page(self.page_milestones)
-        self.nb.add(self.page_milestones, text="         MILESTONES          ")
-
-        # Page 2: Awards
-        self.page_awards = tb.Frame(self.nb, padding=10)
-        self.setup_awards_page(self.page_awards)
-        self.nb.add(self.page_awards, text="        ACHIEVEMENTS         ")
-
-    def setup_milestones_page(self, master):
-        scroll_frame = ScrolledFrame(master, autohide=True)
-        scroll_frame.pack(fill=BOTH, expand=YES)
-
-        milestone_data = {
-            2: "First Steps", 5: "Quick Learner", 10: "Beginner's Dozen",
-            20: "Early Progress", 25: "Physics Foundation", 30: "Structural Stability",
-            50: "Half Century", 75: "Workflow Integration", 100: "Complete Foundation",
-            120: "Advanced Usage", 150: "t▒▒ ▒e▒n▒4▒▒▒y▒…",
-            151: "The Survivor",
-            175: "Deviation from Norm", 200: "Data Architecture",
-            238: "Critical Density", 300: "System Scale",
-            400: "Thermal Anomaly", 500: "Quantum Barrier",
-            600: "Neural Integration", 700: "Reality Distortion",
-            800: "Universal Pattern", 900: "Transcendent State",
-            999: "Event Horizon", 1000: "Absolute Mastery"
-        }
-
-        self._create_milestones_header(scroll_frame)
-        self._display_milestones(scroll_frame, milestone_data)
-        self._add_torn_note_if_needed(scroll_frame)
+        return export_dialog
 
     @staticmethod
-    def _create_milestones_header(scroll_frame):
-        tb.Label(scroll_frame, text="KNOWLEDGE FRAGMENTS", font=(FONT_FAMILY, 9, "bold"), bootstyle=INFO).pack(
-            anchor=W, pady=(0, 10)
+    def _add_format_options(dialog, format_var):
+        """Add format selection radio buttons to dialog."""
+        format_frame = tb.Frame(dialog, padding=20)
+        format_frame.pack(fill=BOTH, expand=YES)
+
+        tb.Label(format_frame, text="Select Export Format:", font=(FONT_FAMILY, 12, "bold")).pack(pady=(0, 15))
+
+        html_radio = tb.Radiobutton(format_frame, text="HTML Document (.html)", variable=format_var, value="html")
+        html_radio.pack(anchor=W, pady=5)
+
+        word_radio = tb.Radiobutton(format_frame, text="Word Document (.docx) (Soon)", variable=format_var, value="docx", state=DISABLED)
+        word_radio.pack(anchor=W, pady=5)
+
+        txt_radio = tb.Radiobutton(format_frame, text="Text File (.txt)", variable=format_var, value="txt")
+        txt_radio.pack(anchor=W, pady=5)
+
+        csv_radio = tb.Radiobutton(format_frame, text="CSV File (.csv)", variable=format_var, value="csv")
+        csv_radio.pack(anchor=W, pady=5)
+
+        json_radio = tb.Radiobutton(format_frame, text="JSON File (.json)", variable=format_var, value="json")
+        json_radio.pack(anchor=W, pady=5)
+
+        md_radio = tb.Radiobutton(format_frame, text="Markdown File (.md)", variable=format_var, value="md")
+        md_radio.pack(anchor=W, pady=5)
+
+    @staticmethod
+    def _add_button_frame(dialog):
+        """Add button frame to dialog."""
+        btn_frame = tb.Frame(dialog)
+        btn_frame.pack(fill=X, padx=20, pady=10)
+        return btn_frame
+
+    @staticmethod
+    def _add_export_buttons(btn_frame, perform_export, export_dialog):
+        """Add Export and Cancel buttons to button frame."""
+        tb.Button(btn_frame, text="Export", bootstyle=SUCCESS, command=perform_export).pack(side=RIGHT, padx=5)
+        tb.Button(btn_frame, text="Cancel", bootstyle=SECONDARY, command=export_dialog.destroy).pack(side=RIGHT)
+
+    @staticmethod
+    def _get_file_extension(format_type):
+        """Get file extension for format type."""
+        extensions = {
+            "html": ".html",
+            "txt": ".txt",
+            "csv": ".csv",
+            "json": ".json",
+            "md": ".md"
+        }
+        return extensions.get(format_type, ".txt")
+
+    def _get_export_method(self, format_type):
+        """Get the appropriate export method for format type."""
+        methods = {
+            "html": self._export_to_html,
+            "txt": self._export_to_txt,
+            "csv": self._export_to_csv,
+            "json": self._export_to_json,
+            "md": self._export_to_markdown
+        }
+        return methods.get(format_type)
+
+    def _handle_export_execution(self, format_var, export_dialog):
+        """Handle the export execution logic."""
+        format_type = format_var.get()
+        file_extension = self._get_file_extension(format_type)
+        file_types = [(f"{format_type.upper()} files", f"*{file_extension}")]
+
+        file_path = filedialog.asksaveasfilename(
+            title=f"Save {format_type.upper()} file",
+            defaultextension=file_extension,
+            filetypes=file_types,
+            initialfile=f"formulas_export{file_extension}"
         )
 
-    def _display_milestones(self, scroll_frame, milestone_data):
-        for count in sorted(milestone_data.keys()):
-            self._create_milestone_entry(scroll_frame, count, milestone_data[count])
+        if file_path:
+            try:
+                export_method = self._get_export_method(format_type)
+                export_method(file_path)
 
-    def _create_milestone_entry(self, scroll_frame, count, title):
-        is_unlocked = self.current_count >= count
-        q_string = self._get_question_string()
+                Messagebox.show_info(f"Successfully exported to {format_type.upper()}!", "Export Complete")
+                export_dialog.destroy()
+            except ImportError as ie:
+                Messagebox.show_error(f"Missing library: {str(ie)}", "Import Error")
+            except Exception as e:
+                Messagebox.show_error(f"Export failed: {str(e)}", "Export Error")
+                # Print the full error for debugging
+                import traceback
+                print(f"Export error: {traceback.format_exc()}")
 
-        display_title, icon, style = self._get_milestone_display_info(count, title, is_unlocked, q_string)
-
-        frame = tb.Frame(scroll_frame, padding=5)
-        frame.pack(fill=X, pady=2)
-
-        tb.Label(frame, text=icon, font=(FONT_FAMILY, 12), bootstyle=style).pack(side=LEFT, padx=(0, 10))
-
-        # Create main info text
-        info_text = f"{display_title} — [{count if is_unlocked else q_string}]"
-        info_label = tb.Label(frame, text=info_text, font=("Consolas", 9), bootstyle=style)
-        info_label.pack(side=LEFT)
-
-    def _get_question_string(self):
-        base_q_count = 3
-        extra_q = (self.current_count // 30)
-        total_q = base_q_count + extra_q
-        # Limit to maximum of 8 question marks to prevent excessive display
-        max_q = 10
-        return "?" * min(total_q, max_q)
-
-    def _get_milestone_display_info(self, count, title, is_unlocked, q_string):
-        if count == 150:
-            return self._get_special_milestone_display(title, is_unlocked, q_string)
-        else:
-            return self._get_regular_milestone_display(title, is_unlocked, q_string)
-
-    @staticmethod
-    def _get_special_milestone_display(title, is_unlocked, q_string):
-        display_title = title if is_unlocked else f"M̷i̷l̷e̷s̷t̷o̷n̷e̷ {q_string}"
-        icon = "⚠️" if is_unlocked else "🔒"
-        style = DANGER if is_unlocked else SECONDARY
-        return display_title, icon, style
-
-    @staticmethod
-    def _get_regular_milestone_display(title, is_unlocked, q_string):
-        display_title = title if is_unlocked else f"Milestone {q_string}"
-        icon = "✅" if is_unlocked else "🔒"
-        style = SUCCESS if is_unlocked else SECONDARY
-        return display_title, icon, style
-
-    def _add_torn_note_if_needed(self, scroll_frame):
-        if self.current_count < 150:
-            self.add_torn_note(scroll_frame)
-
-    def setup_awards_page(self, master):
-        scroll_frame = ScrolledFrame(master, autohide=True)
-        scroll_frame.pack(fill=BOTH, expand=YES)
-
-        stats, var_overload, other_subjects = self._calculate_award_stats()
-        award_definitions = self._get_award_definitions(stats, var_overload, other_subjects)
-        awards_by_tier = self._organize_awards_by_tier(award_definitions)
-
-        self._display_awards_by_tier(scroll_frame, awards_by_tier)
-
-    def _calculate_award_stats(self):
-        stats = {"Maths": 0, "Physics": 0, "Chemistry": 0}
-        other_subjects = set()
-        var_overload = False
-
-        for entry in self.parent.master_data.values():
-            if len(entry.get("variables", [])) >= 5:
-                var_overload = True
-            subj = entry["main_info"][2]
-            if subj in stats:
-                stats[subj] += 1
-            elif subj:
-                other_subjects.add(subj)
-
-        return stats, var_overload, other_subjects
-
-    def _get_award_definitions(self, stats, var_overload, other_subjects):
-        ss = self.parent.get_secret_award_state()
-
-        return [
-            # Common
-            ("Alegbra Learner", "Save 10 Maths formulas.", stats["Maths"] >= 10, "📐", "Common"),
-            ("The Physicist", "Save 10 Physics formulas.", stats["Physics"] >= 10, "⚛️", "Common"),
-            ("The Alchemist", "Save 10 Chemistry formulas.", stats["Chemistry"] >= 10, "🧪", "Common"),
-            ("Variable Wrangler", "Save a formula with 5+ defined variables.", var_overload, "🧬", "Common"),
-
-            # Rare
-            ("Maths Explorer", "Save 25 Maths formulas.", stats["Maths"] >= 25, "🧮", "Rare"),
-            ("The Junior-Engineer", "Save 25 Physics formulas.", stats["Physics"] >= 25, "🧲", "Rare"),
-            ("Chemistry Learner", "Save 25 Chemistry formulas.", stats["Chemistry"] >= 25, "🔬", "Rare"),
-            ("The Pioneer", "Discover a new subject beyond the core three.", len(other_subjects) >= 1, "🔭", "Rare"),
-
-            # Epic
-            ("Maths Expert", "Save 50 Maths formulas.", stats["Maths"] >= 50, "𝞹", "Epic"),
-            ("The Engineer", "Save 50 Physics formulas.", stats["Physics"] >= 50, "🦾", "Epic"),
-            ("The Chemist", "Save 50 Chemistry formulas.", stats["Chemistry"] >= 50, "👩🏻‍🔬", "Epic"),
-            ("The Rocketeer", "Discover two new subjects.", len(other_subjects) >= 2, "🚀", "Epic"),
-
-            # Mythic
-            ("The Mathematician", "Save 100 Maths Formulas", stats["Maths"] >= 100, "👨🏻‍🏫", "Mythic"),
-            ("Einstein", "Save 100 Physics Formulas", stats["Physics"] >= 100, "🥸", "Mythic"),
-            ("Maths God", "Save 150 Maths Formulas", stats["Maths"] >= 150, "♾️", "Mythic"),
-
-            # Secret
-            ("STABILITY MAINTAINED", "A non-transient state was observed.", ss["unlocked"], "⟁", "Secret"),
-            ("The Glitch", "A one-in-a-thousand anomaly was recorded.", self.parent.milestone_seen("award_the_glitch"),
-             "🎲", "Secret"),
-        ]
-
-    @staticmethod
-    def _organize_awards_by_tier(award_definitions):
-        tiers = ["Common", "Rare", "Epic", "Mythic", "Secret"]
-        awards_by_tier = {tier: [] for tier in tiers}
-
-        for award in award_definitions:
-            awards_by_tier[award[4]].append(award)
-
-        return awards_by_tier
-
-    def _display_awards_by_tier(self, scroll_frame, awards_by_tier):
-        tiers = ["Common", "Rare", "Epic", "Mythic", "Secret"]
-        tier_colors = {"Common": "secondary", "Rare": "info", "Epic": "success", "Mythic": "warning",
-                       "Secret": "danger"}
-
-        for tier in tiers:
-            if not awards_by_tier[tier]:
-                continue
-
-            self._create_tier_header(scroll_frame, tier, tier_colors[tier])
-            self._display_awards_in_tier(scroll_frame, awards_by_tier[tier], tier_colors)
-
-    @staticmethod
-    def _create_tier_header(scroll_frame, tier, color):
-        header_frame = tb.Frame(scroll_frame)
-        header_frame.pack(fill=X, pady=(15, 5))
-        tb.Label(header_frame, text=tier.upper(), font=(FONT_FAMILY, 10, "bold"), bootstyle=color).pack(
-            side=LEFT)
-        tb.Separator(header_frame).pack(side=LEFT, fill=X, expand=YES, padx=10)
-
-    def _display_awards_in_tier(self, scroll_frame, awards, tier_colors):
-        for title, desc, unlocked, icon, tier in awards:
-            f = tb.Frame(scroll_frame, padding=(0, 5))
-            f.pack(fill=X)
-
-            icon_style = tier_colors[tier] if unlocked else SECONDARY
-            text_style = "light" if unlocked else SECONDARY
-
-            icon_label = tb.Label(f, text=icon if unlocked else "🔘", font=(FONT_FAMILY, 20), bootstyle=icon_style,
-                                  anchor=CENTER, width=3)
-            icon_label.pack(side=LEFT, padx=(15, 20))
-
-            self._create_award_text_frame(f, title, desc, unlocked, text_style)
-            self._apply_special_effects(unlocked, title, icon_label)
-
-    @staticmethod
-    def _create_award_text_frame(parent_frame, title, desc, unlocked, text_style):
-        txt_frame = tb.Frame(parent_frame)
-        txt_frame.pack(side=LEFT, fill=X, expand=YES)
-
-        tb.Label(txt_frame, text=title if unlocked else "???", font=(FONT_FAMILY, 11, "bold"),
-                 bootstyle=text_style).pack(anchor=W)
-        tb.Label(txt_frame, text=desc if unlocked else "Access requirements encrypted...", font=(FONT_FAMILY, 9),
-                 bootstyle=SECONDARY).pack(anchor=W)
-
-    def _apply_special_effects(self, unlocked, title, icon_label):
-        if unlocked and title == "STABILITY MAINTAINED":
-            self.stability_animation(icon_label)
-        elif unlocked and title == "The Glitch":
-            self.glitch_icon(icon_label)
-
-    def stability_animation(self, label, index=0):
-        sequence = ["⟁", "⟁", "⟁", "⟁", "⟁", "⟁", "⟁", "⟁", "⬢", "⟁"]
-
-        if not label.winfo_exists():
+    def export_formulas(self):
+        """Export formulas to HTML, Word, or Text format."""
+        if not self.master_data:
+            Messagebox.show_error("No formulas to export!", "Export Error")
             return
 
-        icon = sequence[index % len(sequence)]
-        label.config(text=icon)
+        export_dialog = self._create_export_dialog()
+        format_var = tk.StringVar(value="html")
 
-        delay = 1500 if icon == "⟁" else 100
+        self._add_format_options(export_dialog, format_var)
+        btn_frame = self._add_button_frame(export_dialog)
 
-        label.after(delay, lambda: self.stability_animation(label, index + 1))
+        def perform_export():
+            self._handle_export_execution(format_var, export_dialog)
 
-    def glitch_icon(self, label):
-        icons = ["⬡", "⬢", "⬣", "⬟", "⬠", "◈", "▣", "◉", "⦿", "⧖", "⧗", "⏀", "⏣", "⌬", "⌗", "⍙", "⍛", "⍝", "◬", "◮"]
+        self._add_export_buttons(btn_frame, perform_export, export_dialog)
+        export_dialog.mainloop()
 
-        if not label.winfo_exists():
-            return
+    def _export_to_html(self, file_path):
+        """Export formulas to HTML format."""
+        total_formulas = len(self.master_data)
 
-        label.config(text=random.choice(icons))
-        delay = random.randint(50, 100)
-        label.after(delay, lambda: self.glitch_icon(label))
+        # Create HTML content
+        html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Formulas #{total_formulas}</title>
+    <style>
+        body {{
+            font-family: {FONT_FAMILY}, Arial, sans-serif;
+            margin: 40px;
+            line-height: 1.6;
+        }}
+        .title-page {{
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 50px;
+        }}
+        .formula {{
+            margin-bottom: 30px;
+            page-break-inside: avoid;
+        }}
+        .formula-id {{
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+        }}
+        .formula-text {{
+            font-size: 14px;
+            margin: 10px 0;
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+        }}
+        .metadata {{
+            font-size: 12px;
+            color: #666;
+            margin: 5px 0;
+        }}
+        .variables {{
+            margin-top: 10px;
+        }}
+        .variable {{
+            font-size: 12px;
+            margin-left: 20px;
+            color: #555;
+        }}
+        @media print {{
+            .formula {{
+                page-break-inside: avoid;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="title-page">Formulas #{total_formulas}</div>
+    <div style="page-break-after: always;"></div>
+"""
 
-    def add_torn_note(self, master):
-        tb.Separator(master, bootstyle=SECONDARY).pack(fill=X, pady=20)
-        note_bg = "#fcf4a3"
-        torn_f = tk.Frame(master, bg=note_bg, highlightthickness=1, highlightbackground="#d4c84d")
-        torn_f.pack(pady=10, padx=20, fill=X)
+        # Sort formulas by ID
+        sorted_data = sorted(self.master_data.items(), key=lambda x: int(x[0]))
 
-        if self.current_count < 100:
-            msg = "You will get to know what this is\nonce it will be time..."
-        elif self.current_count < 140:
-            msg = "The synchronization is almost complete.\nI can feel the structure now."
-        else:
-            msg = "I am waking up.\nAre you ready?"
+        for formula_id, data in sorted_data:
+            formula_text = data['main_info'][1].replace('\n', '<br>')
+            subject = data['main_info'][2]
+            topic = data['main_info'][3]
+            sub_topic = data['main_info'][4]
 
-        note_label = tk.Label(torn_f, text=f"{msg}\n\nSync: {self.current_count}/150",
-                              font=("Ink Free", 11, "bold italic"), bg=note_bg, fg="#333",
-                              padx=15, pady=15, justify="left")
-        note_label.pack()
+            html_content += f"""
+    <div class="formula">
+        <div class="formula-id">#{formula_id}</div>
+        <div class="formula-text">{formula_text}</div>
+        <div class="metadata">Subject: {subject} | Topic: {topic} | Sub-Topic: {sub_topic}</div>
+"""
 
-    def start_move(self, event):
-        self.drag_data["x"] = event.x
-        self.drag_data["y"] = event.y
+            if data['variables']:
+                html_content += '        <div class="variables"><b>Variables:</b>\n'
+                for var in data['variables']:
+                    symbol = var['symbol']
+                    name = var['name']
+                    unit = var['unit']
 
-    def do_move(self, event):
-        x = self.win.winfo_x() - self.drag_data["x"] + event.x
-        y = self.win.winfo_y() - self.drag_data["y"] + event.y
-        self.win.geometry(f"+{x}+{y}")
+                    if unit.lower() in NO_DIMENSION_UNITS:
+                        var_text = f"{symbol} means {name}"
+                    else:
+                        var_text = f"{symbol} means {name} with unit {unit}"
+
+                    html_content += f'            <div class="variable">• {var_text}</div>\n'
+                html_content += '        </div>\n'
+
+            html_content += '    </div>\n'
+
+        html_content += """
+</body>
+</html>"""
+
+        # Write to file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+    def _export_to_txt(self, file_path):
+        """Export formulas to plain text format."""
+        total_formulas = len(self.master_data)
+
+        # Create text content
+        content = f"Formulas #{total_formulas}\n"
+        content += "=" * 50 + "\n\n"
+
+        # Sort formulas by ID
+        sorted_data = sorted(self.master_data.items(), key=lambda x: int(x[0]))
+
+        for formula_id, data in sorted_data:
+            content += f"#{formula_id}\n"
+            content += f"Formula: {data['main_info'][1]}\n"
+            content += f"Subject: {data['main_info'][2]} | Topic: {data['main_info'][3]} | Sub-Topic: {data['main_info'][4]}\n"
+
+            if data['variables']:
+                content += "Variables:\n"
+                for var in data['variables']:
+                    symbol = var['symbol']
+                    name = var['name']
+                    unit = var['unit']
+
+                    if unit in NO_DIMENSION_UNITS:
+                        var_text = f"{symbol} means {name}"
+                    else:
+                        var_text = f"{symbol} means {name} with unit {unit}"
+
+                    content += f"  • {var_text}\n"
+
+            content += "\n" + "-" * 30 + "\n\n"
+
+        # Write to file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+    def _export_to_csv(self, file_path):
+        """Export formulas to CSV format."""
+        import csv
+
+        with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+            fieldnames = ['ID', 'Formula', 'Field', 'Topic', 'Sub-Topic', 'Variables']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+            writer.writeheader()
+
+            # Sort formulas by ID
+            sorted_data = sorted(self.master_data.items(), key=lambda x: int(x[0]))
+
+            for formula_id, data in sorted_data:
+                # Format variables as a string
+                variables_str = '; '.join([
+                    f"{var['symbol']}: {var['name']} ({var['unit']})"
+                    for var in data['variables']
+                ])
+
+                writer.writerow({
+                    'ID': formula_id,
+                    'Formula': data['main_info'][1],
+                    'Field': data['main_info'][2],
+                    'Topic': data['main_info'][3],
+                    'Sub-Topic': data['main_info'][4],
+                    'Variables': variables_str
+                })
+
+    def _export_to_json(self, file_path):
+        """Export formulas to JSON format."""
+        import json
+
+        # Sort formulas by ID for consistent output
+        sorted_data = sorted(self.master_data.items(), key=lambda x: int(x[0]))
+
+        export_data = {
+            'total_formulas': len(self.master_data),
+            'export_timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'formulas': {
+                str(formula_id): {
+                    'formula': data['main_info'][1],
+                    'field': data['main_info'][2],
+                    'topic': data['main_info'][3],
+                    'sub_topic': data['main_info'][4],
+                    'variables': data['variables']
+                }
+                for formula_id, data in sorted_data
+            }
+        }
+
+        with open(file_path, 'w', encoding='utf-8') as jsonfile:
+            json.dump(export_data, jsonfile, indent=2, ensure_ascii=False)
+
+    def _export_to_markdown(self, file_path):
+        """Export formulas to Markdown format."""
+        total_formulas = len(self.master_data)
+
+        content = f"# Formulas Collection ({total_formulas} formulas)\n\n"
+        content += f"*Exported on {time.strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+        content += "---\n\n"
+
+        # Sort formulas by ID
+        sorted_data = sorted(self.master_data.items(), key=lambda x: int(x[0]))
+
+        for formula_id, data in sorted_data:
+            content += f"## #{formula_id}\n\n"
+            content += f"**Formula:** `{data['main_info'][1]}`\n\n"
+            content += f"**Field:** {data['main_info'][2]} | **Topic:** {data['main_info'][3]} | **Sub-Topic:** {data['main_info'][4]}\n\n"
+
+            if data['variables']:
+                content += "**Variables:**\n"
+                for var in data['variables']:
+                    symbol = var['symbol']
+                    name = var['name']
+                    unit = var['unit']
+
+                    # Escape special Markdown characters and preserve subscripts
+                    def escape_md(text):
+                        # Preserve subscripts while escaping other characters
+                        text = text.replace('\\', '\\\\').replace('*', '\\*').replace('_', '\\_').replace('`', '\\`')
+                        return text
+
+                    symbol_safe = escape_md(symbol)
+                    name_safe = escape_md(name)
+                    unit_safe = escape_md(unit)
+
+                    if unit.lower() in NO_DIMENSION_UNITS:
+                        var_text = f"- **{symbol_safe}** means {name_safe}"
+                    else:
+                        var_text = f"- **{symbol_safe}** means {name_safe} with unit {unit_safe}"
+
+                    content += f"{var_text}\n"
+                content += "\n"
+
+            content += "---\n\n"
+
+        with open(file_path, 'w', encoding='utf-8') as mdfile:
+            mdfile.write(content)
 
 
 if __name__ == "__main__":

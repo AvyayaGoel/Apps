@@ -1,19 +1,18 @@
-import tkinter as tk
 import logging
+import tkinter as tk
+
 import ttkbootstrap as tb
 from ttkbootstrap.constants import BOTH, END, INFO, LEFT, RIGHT, SECONDARY, SUCCESS, WARNING, X, YES, W
 from ttkbootstrap.dialogs import Messagebox
 from ttkbootstrap.widgets.scrolled import ScrolledFrame
+
+from constants import (
+    KEY_RELEASE_EVENT, FOCUS_IN_EVENT,
+    FOCUS_OUT_EVENT, BUTTON_PRESS_1_EVENT,
+    B1_MOTION_EVENT
+)
 from toast_manager import show_toast
 
-COMBOBOX_SELECTED_EVENT = "<<ComboboxSelected>>"
-KEY_RELEASE_EVENT = "<KeyRelease>"
-FOCUS_IN_EVENT = "<FocusIn>"
-FOCUS_OUT_EVENT = "<FocusOut>"
-RETURN_EVENT = '<Return>'
-BUTTON_1_EVENT = "<Button-1>"
-BUTTON_PRESS_1_EVENT = "<ButtonPress-1>"
-B1_MOTION_EVENT = "<B1-Motion>"
 
 class MacroManagerWindow:
     def __init__(self, parent):
@@ -250,10 +249,12 @@ class MacroManagerWindow:
         self.drag_data["x"] = event.x_root
         self.drag_data["y"] = event.y_root
 
+
 def _clear_placeholder(widget, text):
     if widget.get() == text:
         widget.delete(0, END)
         widget.configure(foreground="")  # Reset to normal theme color
+
 
 def _restore_placeholder(widget, text):
     """Restores placeholder text if the entry is left empty on focus out."""

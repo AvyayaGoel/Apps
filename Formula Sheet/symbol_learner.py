@@ -16,6 +16,7 @@ def normalize_main_info(data):
     data["main_info"] = mi[:5]
     return data
 
+
 class SymbolLearner:
     """
     Learns symbol → (name, unit) mappings from formula data.
@@ -78,11 +79,12 @@ class SymbolLearner:
             topic: str,
             sub_topic: str,
             symbol: str,
-            min_confidence: int = 1
+            min_confidence: int = 1,
+            max_results: int = 5
     ) -> List[Tuple[str, str]]:
         """
         Get ALL possible matches for a symbol across the hierarchy.
-        Returns up to 3 best matches sorted by confidence.
+        Returns up to max_results best matches sorted by confidence.
         """
 
         def all_from(symbol_bucket: dict, min_conf):
@@ -132,7 +134,7 @@ class SymbolLearner:
         for bucket in search_buckets:
             add_matches_from_bucket(bucket, all_matches, seen)
 
-        return all_matches[:3]  # Return top 3 matches
+        return all_matches[:max_results]  # Return top matches up to max_results
 
     # --------------------------------------------------
     # INTERNAL UTIL

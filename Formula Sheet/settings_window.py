@@ -1,20 +1,18 @@
 import ttkbootstrap as tb
-from ttkbootstrap.constants import SECONDARY, BOTH, YES, X, Y, VERTICAL, HORIZONTAL, SUCCESS, END, SOLID, DISABLED, WARNING, RIGHT, LEFT, BOTTOM, W, INFO
+from ttkbootstrap.constants import SECONDARY, BOTH, YES, X, Y, VERTICAL, HORIZONTAL, SUCCESS, END, SOLID, DISABLED, \
+    WARNING, RIGHT, LEFT, BOTTOM, W, INFO
 from ttkbootstrap.dialogs import ColorChooserDialog, Messagebox
 from ttkbootstrap.widgets.scrolled import ScrolledFrame
+
+from constants import (
+    FONT_FAMILY, FOCUS_IN_EVENT,
+    FOCUS_OUT_EVENT, BUTTON_1_EVENT, BUTTON_PRESS_1_EVENT,
+    B1_MOTION_EVENT
+)
 from macro_manager_window import MacroManagerWindow
 from toast_manager import show_toast
 from tooltip_manager import TopMostToolTip
 
-FONT_FAMILY = "Segoe UI"
-COMBOBOX_SELECTED_EVENT = "<<ComboboxSelected>>"
-KEY_RELEASE_EVENT = "<KeyRelease>"
-FOCUS_IN_EVENT = "<FocusIn>"
-FOCUS_OUT_EVENT = "<FocusOut>"
-RETURN_EVENT = '<Return>'
-BUTTON_1_EVENT = "<Button-1>"
-BUTTON_PRESS_1_EVENT = "<ButtonPress-1>"
-B1_MOTION_EVENT = "<B1-Motion>"
 
 class SettingsWindow:
     def __init__(self, parent):
@@ -42,6 +40,10 @@ class SettingsWindow:
         self.suggest_var = None
         self.save_delay = None
         self.backup_var = None
+        self.suggestion_count_var = None
+        self.enable_suggestions_cb = None
+        self.suggestion_spinbox = None
+        self.strictness_radios = []
 
         self.color_placeholder = "Subject Name"
 
@@ -151,7 +153,7 @@ class SettingsWindow:
         self.nav_buttons[name].configure(bootstyle=SECONDARY)
 
     def setup_general_page(self, master):
-        content = ScrolledFrame(master, autohide=False)
+        content = ScrolledFrame(master, autohide=True, bootstyle="round")
         content.pack(fill=BOTH, expand=YES)
 
         cb = tb.Checkbutton(
@@ -212,7 +214,7 @@ class SettingsWindow:
         tb.Button(add_color_f, text="Pick", bootstyle="outline-secondary", command=pick_color).pack(side=LEFT, padx=2)
         tb.Button(add_color_f, text="+", bootstyle=SUCCESS, command=self.add_color_mapping).pack(side=LEFT, padx=2)
 
-        self.color_scroll = ScrolledFrame(content, height=200, autohide=False)
+        self.color_scroll = ScrolledFrame(content, height=200, autohide=False, bootstyle="round")
         self.color_scroll.pack(fill=X, expand=True, pady=(8, 20))
 
         self.color_list_frame = tb.Frame(self.color_scroll)
@@ -238,6 +240,21 @@ class SettingsWindow:
         content = tb.Frame(master, padding=10)
         content.pack(fill=BOTH, expand=YES)
 
+        # Check if there are enough formulas for suggestions to work
+        formula_count = len(self.parent.master_data)
+        suggestions_enabled = formula_count >= 6
+
+        if not suggestions_enabled:
+            # Show warning message when fewer than 6 formulas
+            warning_frame = tb.Frame(content, bootstyle=WARNING)
+            warning_frame.pack(fill=X, pady=(0, 10))
+            tb.Label(
+                warning_frame,
+                text=f"⚠️ Smart Suggestions require at least 6 formulas (you have {formula_count})",
+                bootstyle="inverse-warning",
+                padding=10
+            ).pack()
+
         self.suggestion_strictness_var = tb.StringVar(
             value=self.parent.suggestion_strictness
         )
@@ -254,12 +271,15 @@ class SettingsWindow:
         for mode, desc in modes.items():
             row = tb.Frame(lf)
             row.pack(fill=X, pady=4)
-            tb.Radiobutton(
+            radio = tb.Radiobutton(
                 row,
                 text=mode,
                 variable=self.suggestion_strictness_var,
-                value=mode
-            ).pack(side=LEFT)
+                value=mode,
+                state="normal" if suggestions_enabled else "disabled"
+            )
+            radio.pack(side=LEFT)
+            self.strictness_radios.append(radio)
             tb.Label(row, text=f"- {desc}", bootstyle=SECONDARY).pack(side=LEFT, padx=10)
 
         tb.Separator(content).pack(fill=X, pady=15)
@@ -269,10 +289,34 @@ class SettingsWindow:
             content,
             text="Enable Smart Suggestions",
             variable=self.suggest_var,
-            bootstyle="success-square-toggle"
+            bootstyle="success-square-toggle",
+            state="normal" if suggestions_enabled else "disabled"
         )
         cb.pack(anchor=W, pady=6)
-        TopMostToolTip(cb, "Globally enable or disable the symbol suggestion system.")
+        TopMostToolTip(cb, "Globally enable or disable the symbol suggestion system.", bootstyle=INFO)
+        self.enable_suggestions_cb = cb
+
+        # Suggestion Count Setting
+        lf_count = tb.Labelframe(content, text=" Suggestion Count ", padding=15)
+        lf_count.pack(fill=X, pady=10)
+
+        row_count = tb.Frame(lf_count)
+        row_count.pack(fill=X, pady=5)
+
+        tb.Label(row_count, text="Max Suggestions:").pack(side=LEFT)
+
+        self.suggestion_count_var = tb.IntVar(value=getattr(self.parent, 'max_suggestions', 3))
+        suggestion_spinbox = tb.Spinbox(
+            row_count,
+            from_=1,
+            to=5,
+            width=5,
+            textvariable=self.suggestion_count_var,
+            state="normal" if suggestions_enabled else "disabled"
+        )
+        suggestion_spinbox.pack(side=RIGHT)
+        TopMostToolTip(suggestion_spinbox, "Set maximum number of suggestions to show (1-5)", bootstyle=INFO)
+        self.suggestion_spinbox = suggestion_spinbox
 
     def setup_autosave_page(self, master):
         content = tb.Frame(master, padding=10)
@@ -378,9 +422,16 @@ class SettingsWindow:
         self.parent.enable_backups = self.backup_var.get()
         self.parent.suggestion_strictness = self.suggestion_strictness_var.get()
         self.parent.enable_suggestions = self.suggest_var.get()
+        self.parent.max_suggestions = self.suggestion_count_var.get()
         self.parent.always_on_top = self.topmost_var.get()
 
         self.parent.save_config()
+
+        # Refresh symbol learner when suggestion settings change
+        if hasattr(self.parent, 'symbol_learner'):
+            self.parent.learn_symbols()
+            # Force immediate update of active suggestions
+            self.parent.clear_ghost_suggestions()
 
         show_toast("Settings Saved!")
         self.parent.apply_row_colors()
@@ -397,6 +448,7 @@ def _clear_placeholder(widget, text):
     if widget.get() == text:
         widget.delete(0, END)
         widget.configure(foreground="")  # Reset to normal theme color
+
 
 def _restore_placeholder(widget, text):
     """Restores placeholder text if the entry is left empty on focus out."""

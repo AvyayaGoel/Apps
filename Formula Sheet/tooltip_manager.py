@@ -1,5 +1,7 @@
-from ttkbootstrap.widgets.tooltip import ToolTip
 import tkinter as tk
+
+from ttkbootstrap.widgets.tooltip import ToolTip
+
 
 class TopMostToolTip(ToolTip):
     """Extended ToolTip that ensures it's always on top and properly cleans up."""
