@@ -51,7 +51,7 @@ class StatsDashboard:
 
         # Using INVERSE here makes it white/silver text on dark header
         tb.Label(self.header, text="Knowledge Collection",
-                 font=(self.parent.font_name, 12, "bold"), bootstyle=(SECONDARY, INVERSE)).pack(side=LEFT)
+                 font=("Consolas", 12, "bold"), bootstyle=(SECONDARY, INVERSE)).pack(side=LEFT)
 
         # Close Button - Matches Settings style
         tb.Button(self.header, text="✕", width=3, bootstyle="danger",

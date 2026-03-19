@@ -5,12 +5,15 @@ import random
 import re
 import shutil
 import sys
-import threading
 import time
+import json
+import csv
 import tkinter as tk
+import tkinter.font as tkFont
 from tkinter import filedialog
 from typing import Optional
 from typing import Protocol
+import html
 
 import ttkbootstrap as tb
 from ttkbootstrap.constants import (BOTH, TOP, X, YES, INFO,
@@ -20,12 +23,12 @@ from ttkbootstrap.dialogs import Messagebox
 from ttkbootstrap.widgets.tableview import Tableview
 
 from constants import (
-    FONT_FAMILY, COMBOBOX_SELECTED_EVENT, KEY_RELEASE_EVENT, FOCUS_IN_EVENT,
+    FONT_FAMILY, FALLBACK_FONT_FAMILY, COMBOBOX_SELECTED_EVENT, KEY_RELEASE_EVENT, FOCUS_IN_EVENT,
     FOCUS_OUT_EVENT, RETURN_EVENT, SYSTEM_LOCKED_MSG, SYSTEM_LOCKED_TRY_AGAIN_MSG,
     SYSTEM_LOCKED_NOTHING_SAVES_MSG, SYSTEM_LOCKED_NICE_TRY_MSG,
     OLD_JSON_FILENAME, SCHEMA_FILENAME, DB_NAME, CONFIG_NAME, TIP_NAME,
     BACKUP_NAMES, DEFAULT_SUBJECT_COLORS, ENTITY_GRAPH, ENTITY_TEXT,
-    ENTITY_BOOT, ENTITY_REBOOT, MIGRATED_EXTENSION, NO_DIMENSION_UNITS
+    ENTITY_BOOT, ENTITY_REBOOT, MIGRATED_EXTENSION, NO_DIMENSION_UNITS, SAVE_FORMULA
 )
 from database_manager import DatabaseManager
 from formula_utils import FormulaUtils
@@ -65,9 +68,6 @@ class Sheet:
         self.temp_variables = None
         self.editing_mode = None
         self.edit_id = None
-        self.auto_save_timer = None
-        self.save_in_progress = False
-        self.save_lock = threading.Lock()
         self.last_focused_widget = None
         self.windows = None
         self.drag_x = None
@@ -89,7 +89,6 @@ class Sheet:
         self.current_ghost_index = None
         self.ghost_confidence = None
         self._tooltip_widget = None
-        self.auto_save_delay = None
         self.enable_backups = None
         self.enable_suggestions = None
         self.suggestion_strictness = None
@@ -213,9 +212,6 @@ class Sheet:
         self.temp_variables = []
         self.editing_mode = False
         self.edit_id = None
-        self.auto_save_timer = None
-        self.save_in_progress = False
-        self.save_lock = threading.Lock()
         self.last_focused_widget = None
 
         # Initialize keypad manager
@@ -257,7 +253,6 @@ class Sheet:
         self.current_ghost_index = 0
         self.ghost_confidence = 0
 
-        self.auto_save_delay = 5000
         self.enable_backups = True
         self.enable_suggestions = True
         self.suggestion_strictness = "Balanced"
@@ -270,7 +265,7 @@ class Sheet:
         self.topic_e = tb.StringVar()
         self.sub_topic_e = tb.StringVar()
 
-        self.font_name = FONT_FAMILY
+        self.font_name = self._get_best_font()
 
         self.cols = [
             {"text": "No.", "stretch": False, "width": 60},
@@ -279,6 +274,36 @@ class Sheet:
             {"text": "Topic", "stretch": True},
             {"text": "Sub-Topic", "stretch": True},
         ]
+
+    @staticmethod
+    def _get_best_font():
+        """Get the best available font for Unicode mathematical symbols."""
+        try:
+
+            available_fonts = tkFont.families()
+            # Check for mathematical fonts in order of preference
+            preferred_fonts = [
+                "Cambria Math",
+                "STIX Two Math", 
+                "DejaVu Sans",
+                "Times New Roman",
+                "Arial Unicode MS",
+                "Segoe UI",
+                "Arial"
+            ]
+            for font in preferred_fonts:
+                if font in available_fonts:
+                    return font
+
+            # Fallback to system font stack
+            return FALLBACK_FONT_FAMILY
+
+        except (tk.TclError, AttributeError, ImportError) as e:
+            logging.warning(f"Font detection failed: {e}")
+            return FALLBACK_FONT_FAMILY
+        except Exception as e:
+            logging.error(f"Unexpected error in font detection: {e}")
+            return FALLBACK_FONT_FAMILY
 
     def _setup_icon(self):
         """Setup window icon if available."""
@@ -320,7 +345,8 @@ class Sheet:
                                    bootstyle=SECONDARY,
                                    command=lambda: self.open_stats())
         self.stats_btn.pack(side=TOP, anchor=N, pady=(0, 5))
-        TopMostToolTip(self.stats_btn, text="View Formula Distribution by Subject/Topic", bootstyle="secondary-inverse")
+        TopMostToolTip(self.stats_btn, text="View Formula Distribution by Subject/Topic",
+                       bootstyle="secondary-inverse")
 
         self.view_btn = tb.Button(self.utility_bar,
                                   text="🔍", width=3,
@@ -353,7 +379,8 @@ class Sheet:
                                        )
         self.formula_table.pack(fill=BOTH, expand=YES)
         self.apply_row_colors()
-        self.formula_table.view.bind("<<TreeviewSelect>>", lambda e: self.root.after(1, self.apply_row_colors))
+        self.formula_table.view.bind("<<TreeviewSelect>>",
+                                     lambda e: self.root.after(1, self.apply_row_colors))
 
     def _create_entry_section(self):
         """Create the data entry section with form fields."""
@@ -368,16 +395,23 @@ class Sheet:
             tb.Label(self.data_entry_frame, text=label).grid(row=i, column=0, sticky=W, pady=5)
             widget = self._create_field_widget(label, var)
             widget.bind(FOCUS_IN_EVENT, self.handle_focus)
-            widget.grid(row=i, column=1, sticky=EW, padx=10)
+            widget.grid(row=i, column=1, sticky=EW, padx=10, columnspan=2)
 
         self.export_btn = tb.Button(self.data_entry_frame, text="📄 Export", bootstyle="success-outline",
                                     command=self.export_formulas)
         self.export_btn.grid(row=5, column=0, sticky=E)
         TopMostToolTip(self.export_btn, "Export Formulas", bootstyle=INFO)
 
-        self.save_btn = tb.Button(self.data_entry_frame, text="Save Formula", width=20, bootstyle=INFO,
+        self.cancel_btn = tb.Button(self.data_entry_frame, text="Cancel", width=12, bootstyle=SECONDARY,
+                                    command=self.cancel_edit)
+
+        self.save_btn = tb.Button(self.data_entry_frame, text=SAVE_FORMULA, width=20, bootstyle=INFO,
                                   command=self.save_to_table)
-        self.save_btn.grid(row=5, column=1, sticky=E, pady=10)
+        self.save_btn.grid(row=5, column=2, sticky=E, pady=10)
+        
+        # Create cancel button (initially hidden)
+
+        # Don't pack/grid initially - will show in edit mode
 
     def _create_field_widget(self, label, var):
         """Create appropriate widget for each field."""
@@ -414,7 +448,7 @@ class Sheet:
         var_mgmt_frame = tb.Labelframe(self.data_entry_frame,
                                        text=" Variables ",
                                        padding=10)
-        var_mgmt_frame.grid(row=4, column=0, columnspan=2, sticky=EW, pady=10)
+        var_mgmt_frame.grid(row=4, column=0, columnspan=3, sticky=EW, pady=10)
 
         self._create_variable_inputs(var_mgmt_frame)
         self._create_staging_table(var_mgmt_frame)
@@ -557,7 +591,6 @@ class Sheet:
 
     def _setup_focus_handlers(self):
         """Setup focus and tooltip handlers."""
-        self.bind_autosave_widgets()
         self.v_sym.bind(KEY_RELEASE_EVENT, lambda _e: self.update_preview())
 
     def _setup_window_protocol(self):
@@ -584,12 +617,6 @@ class Sheet:
         # Update Stats panel
         if self.windows["stats"] and self.windows["stats"].win.winfo_exists():
             self.windows["stats"].win.attributes("-topmost", self.always_on_top)
-
-    def trigger_auto_save(self):
-        """Resets the timer every time the user types."""
-        if self.auto_save_timer is not None:
-            self.root.after_cancel(self.auto_save_timer)
-        self.auto_save_timer = self.root.after(self.auto_save_delay, self.perform_silent_save)
 
     def update_awards_button(self):
         """Update Awards button state based on formula count."""
@@ -629,73 +656,6 @@ class Sheet:
         widget.bind(FOCUS_IN_EVENT, self.on_entry_focus_in)
         widget.bind(FOCUS_OUT_EVENT, lambda _e: self.on_entry_focus_out())
         return widget
-
-    def perform_silent_save(self):
-        """Save data to SQLite database in background thread."""
-        if self._should_skip_save():
-            return
-
-        self._mark_save_in_progress()
-        self._start_save_worker()
-
-    def _should_skip_save(self):
-        """Check if save operation should be skipped."""
-        if self.save_in_progress:
-            return True
-
-        with self.save_lock:
-            if self.save_in_progress:
-                return True
-        return False
-
-    def _mark_save_in_progress(self):
-        """Mark save operation as in progress."""
-        with self.save_lock:
-            self.save_in_progress = True
-
-    def _start_save_worker(self):
-        """Start the background save worker thread."""
-        save_thread = threading.Thread(target=self._save_worker, daemon=True)
-        save_thread.start()
-
-    def _save_worker(self):
-        """Background worker function for saving data."""
-        try:
-            self._save_all_formulas()
-            logging.info(f"Saved {len(self.master_data)} formulas to SQLite database")
-        except Exception as e:
-            logging.error(f"Failed to save to SQLite database: {e}", exc_info=True)
-        finally:
-            self._reset_save_progress()
-
-    def _save_all_formulas(self):
-        """Save all formulas to the database using batch operation for optimal performance."""
-        # Create a snapshot of master_data to prevent race conditions
-        with self.save_lock:
-            master_data_copy = dict(self.master_data)
-
-        # Use the new batch save method - this handles both INSERT and UPDATE in one transaction
-        inserted_count, updated_count = self.db_manager.save_formulas_batch(master_data_copy)
-
-        if inserted_count > 0 or updated_count > 0:
-            logging.info(f"Batch save completed: {inserted_count} inserted, {updated_count} updated")
-
-    def _save_single_formula(self, formula_id, formula_data):
-        """Save a single formula to the database."""
-        main_info = formula_data['main_info']
-        variables = formula_data.get('variables', [])
-
-        formula_params = FormulaUtils.extract_formula_params(main_info, variables)
-
-        if self.db_manager.get_formula(formula_id):
-            self.db_manager.update_formula(formula_id=formula_id, **formula_params)
-        else:
-            self.db_manager.add_formula(**formula_params)
-
-    def _reset_save_progress(self):
-        """Reset save progress flag."""
-        with self.save_lock:
-            self.save_in_progress = False
 
     def open_settings(self):
         """Ensures only one settings window opens at a time."""
@@ -738,7 +698,6 @@ class Sheet:
 
         # Apply configuration to UI
         self.root.style.theme_use(config.get("theme", "darkly"))
-        self.auto_save_delay = config.get("delay", 5000)
         self.enable_backups = config.get("backups", True)
         self.enable_suggestions = config.get("suggestions", True)
         self.suggestion_strictness = config.get("suggestion_strictness", "Balanced")
@@ -756,7 +715,6 @@ class Sheet:
         FormulaUtils.save_config(
             self.config_file,
             self.root.style.theme.name,
-            self.auto_save_delay,
             self.enable_backups,
             self.enable_suggestions,
             self.suggestion_strictness,
@@ -868,13 +826,6 @@ class Sheet:
 
         if not self.ghost_active:
             self.update_preview()
-            if not self.ghost_active:
-                for w in main_group:
-                    placeholder = getattr(w, 'placeholder', None)
-                    # Only insert if empty
-                    if not w.get().strip() and placeholder:
-                        w.insert(0, placeholder)
-                        w.configure(foreground="gray")
 
     def apply_ghost_text(self, name, unit, confidence=2):
         """Inserts the suggestion as gray ghost text with optional confidence and count indicators."""
@@ -1027,25 +978,6 @@ class Sheet:
         else:
             self.windows["keypad"] = None
 
-    def bind_autosave_widgets(self):
-        widgets = [
-            self.formula,
-            self.v_sym,
-            self.v_name,
-            self.v_unit,
-            self.subject_cb,
-            self.topic_cb,
-            self.sub_topic_cb
-        ]
-        for w in widgets:
-            try:
-                w.bind("<Key>", lambda e_: self.trigger_auto_save())
-                w.bind(FOCUS_OUT_EVENT, lambda e_: self.trigger_auto_save())
-            except tk.TclError:
-                pass
-            except Exception as e:
-                logging.error(f"Error binding widget {w}: {e}", exc_info=True)
-
     def refresh_staging_table(self):
         rows = [(v['symbol'], v['name'], v['unit']) for v in self.temp_variables]
         # noinspection PyTypeChecker
@@ -1094,6 +1026,27 @@ class Sheet:
     def load_variable_to_fix(self):
         selected = self.staging_table.view.selection()
         if selected:
+            # Check if there's actual content in variable fields (not placeholders)
+            def has_actual_content(widget):
+                content = widget.get().strip()
+                placeholder = getattr(widget, 'placeholder', "")
+                return content != "" and content != placeholder
+            
+            has_content = any([
+                has_actual_content(self.v_sym),
+                has_actual_content(self.v_name),
+                has_actual_content(self.v_unit)
+            ])
+            
+            # If there's actual content, warn user before overriding
+            if has_content:
+                response = Messagebox.yesno(
+                    "Unsaved variable data will be lost. Continue?",
+                    "Unsaved Data Warning"
+                )
+                if response == "No":
+                    return
+            
             item = self.staging_table.view.item(selected[0])
             val = item['values']
             self.v_sym.delete(0, END)
@@ -1102,14 +1055,26 @@ class Sheet:
             self.v_name.insert(0, val[1])
             self.v_unit.delete(0, END)
             self.v_unit.insert(0, val[2])
-            self.remove_variable()
+            for w in (self.v_sym, self.v_name, self.v_unit):
+                w.configure(foreground="")
+            self.remove_variable(True)
             self.v_sym.focus()
 
-    def remove_variable(self):
+    def remove_variable(self, skip=False):
         selected = self.staging_table.view.selection()
         if selected:
             item = self.staging_table.view.item(selected[0])
             val = item['values']
+            
+            # Ask user if they want to delete the selected variable
+            if not skip:
+                response = Messagebox.yesno(
+                    f"Delete variable '{val[0]}' ({val[1]})?",
+                    "Delete Variable"
+                )
+                if response == "No":
+                    return
+            
             self.temp_variables = [v for v in self.temp_variables if
                                    not (v['symbol'] == val[0] and v['name'] == val[1])]
             self.refresh_staging_table()
@@ -2271,7 +2236,9 @@ class Sheet:
                 show_toast(f"Formula {form_data['text']} Changed Successfully")
                 self.editing_mode = False
                 self.edit_id = None
-                self.save_btn.configure(text="Save Formula", bootstyle=INFO)
+                self.save_btn.configure(text=SAVE_FORMULA, bootstyle=INFO)
+                # Hide cancel button when exiting edit mode
+                self.cancel_btn.grid_forget()
             else:
                 show_toast("Failed to update formula", bootstyle=DANGER)
 
@@ -2547,37 +2514,20 @@ class Sheet:
         self.temp_variables = data["variables"].copy()
         self.refresh_staging_table()
         self.save_btn.configure(text="Update Formula", bootstyle=WARNING)
+        # Show cancel button in edit mode
+        self.cancel_btn.grid(row=5, column=1, sticky=E, pady=10, padx=(0, 5))
 
-    def _cancel_autosave_timer(self):
-        """Cancel any pending autosave timer."""
-        if self.auto_save_timer is not None:
-            try:
-                self.root.after_cancel(self.auto_save_timer)
-            except (ValueError, RuntimeError):
-                pass
-            self.auto_save_timer = None
-
-    def _wait_for_save_completion(self):
-        """Wait for any in-progress save operation to complete."""
-        if not self.save_in_progress:
-            return
-
-        logging.info("Waiting for save operation to complete...")
-        # Wait up to 5 seconds for save to complete
-        for _ in range(50):  # 50 * 0.1 = 5 seconds
-            with self.save_lock:
-                if not self.save_in_progress:
-                    break
-            time.sleep(0.1)
-
-    def _cleanup_resources(self):
-        """Clean up application resources during shutdown."""
-        self._cancel_autosave_timer()
-        self._wait_for_save_completion()
-
-        # Close database connection
-        if hasattr(self, 'db_manager'):
-            self.db_manager.close()
+    def cancel_edit(self):
+        """Cancel the current edit operation and return to normal mode."""
+        if self.editing_mode:
+            self.editing_mode = False
+            self.edit_id = None
+            self.save_btn.configure(text=SAVE_FORMULA, bootstyle=INFO)
+            # Hide cancel button
+            self.cancel_btn.grid_forget()
+            # Clear all entry fields
+            self.clear_entries()
+            show_toast("Edit cancelled", bootstyle=INFO)
 
     def on_closing(self):
         if hasattr(self, 'in_reflection_mode') and self.in_reflection_mode:
@@ -2590,12 +2540,6 @@ class Sheet:
                 "Unsaved Work")
             if response == "No":
                 return
-
-        try:
-            self._cleanup_resources()
-        except Exception as e:
-            logging.error(f"Error during application shutdown: {e}")
-
         self.root.destroy()
 
     def check_and_migrate_env(self):
@@ -2886,7 +2830,7 @@ class Sheet:
         canvas.pack(side=TOP, fill=BOTH, expand=YES)
 
         formula_label = tb.Label(canvas, text=formula_text,
-                                 font=("Consolas", 18, "bold"), bootstyle=SUCCESS,
+                                 font=(FONT_FAMILY, 18), bootstyle=SUCCESS,
                                  anchor=CENTER, padding=(10, 5))
 
         # Place label and setup scrolling
@@ -2937,7 +2881,7 @@ class Sheet:
     def _add_formula_metadata(self, data):
         """Add formula metadata (field, topic, sub-topic)."""
         metadata_text = f"Field: {data['main_info'][2]} | Topic: {data['main_info'][3]} | Sub-Topic: {data['main_info'][4]}"
-        tb.Label(self.details_frame, text=metadata_text, font=("Arial", 11)).pack(pady=5)
+        tb.Label(self.details_frame, text=metadata_text, font=(FONT_FAMILY, 11)).pack(pady=5)
 
     def _add_variables_table(self, data):
         """Add variables table if variables exist."""
@@ -3106,12 +3050,30 @@ class Sheet:
         html_content = f"""<!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>Formulas #{total_formulas}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cambria+Math&family=STIX+Two+Math&family=DejaVu+Sans&display=swap" rel="stylesheet">
     <style>
+        @font-face {{
+            font-family: 'Cambria Math';
+            src: local('Cambria Math'), local('CambriaMath');
+        }}
+        @font-face {{
+            font-family: 'STIX Two Math';
+            src: local('STIX Two Math'), local('STIXTwoMath');
+        }}
+        @font-face {{
+            font-family: 'DejaVu Sans';
+            src: local('DejaVu Sans'), local('DejaVuSans');
+        }}
+        
         body {{
-            font-family: {FONT_FAMILY}, Arial, sans-serif;
+            font-family: 'Cambria Math', 'STIX Two Math', 'DejaVu Sans', 'Times New Roman', 'Arial Unicode MS', 'Segoe UI', Arial, sans-serif;
             margin: 40px;
             line-height: 1.6;
+            font-size: 14px;
         }}
         .title-page {{
             text-align: center;
@@ -3129,11 +3091,14 @@ class Sheet:
             color: #333;
         }}
         .formula-text {{
-            font-size: 14px;
+            font-size: 16px;
             margin: 10px 0;
             background: #f5f5f5;
-            padding: 10px;
+            padding: 15px;
             border-radius: 5px;
+            font-family: 'Cambria Math', 'STIX Two Math', 'DejaVu Sans', 'Times New Roman', 'Arial Unicode MS', serif;
+            line-height: 1.4;
+            unicode-bidi: embed;
         }}
         .metadata {{
             font-size: 12px;
@@ -3164,10 +3129,10 @@ class Sheet:
         sorted_data = sorted(self.master_data.items(), key=lambda x: int(x[0]))
 
         for formula_id, data in sorted_data:
-            formula_text = data['main_info'][1].replace('\n', '<br>')
-            subject = data['main_info'][2]
-            topic = data['main_info'][3]
-            sub_topic = data['main_info'][4]
+            formula_text = html.escape(data['main_info'][1].replace('\n', '<br>'))
+            subject = html.escape(data['main_info'][2])
+            topic = html.escape(data['main_info'][3])
+            sub_topic = html.escape(data['main_info'][4])
 
             html_content += f"""
     <div class="formula">
@@ -3179,9 +3144,9 @@ class Sheet:
             if data['variables']:
                 html_content += '        <div class="variables"><b>Variables:</b>\n'
                 for var in data['variables']:
-                    symbol = var['symbol']
-                    name = var['name']
-                    unit = var['unit']
+                    symbol = html.escape(var['symbol'])
+                    name = html.escape(var['name'])
+                    unit = html.escape(var['unit'])
 
                     if unit.lower() in NO_DIMENSION_UNITS:
                         var_text = f"{symbol} means {name}"
@@ -3215,7 +3180,9 @@ class Sheet:
         for formula_id, data in sorted_data:
             content += f"#{formula_id}\n"
             content += f"Formula: {data['main_info'][1]}\n"
-            content += f"Subject: {data['main_info'][2]} | Topic: {data['main_info'][3]} | Sub-Topic: {data['main_info'][4]}\n"
+            content += (f"Subject: {data['main_info'][2]} |"
+                        f" Topic: {data['main_info'][3]} |"
+                        f" Sub-Topic: {data['main_info'][4]}\n")
 
             if data['variables']:
                 content += "Variables:\n"
@@ -3234,14 +3201,13 @@ class Sheet:
             content += "\n" + "-" * 30 + "\n\n"
 
         # Write to file
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, 'w', encoding='utf-8-sig') as f:
             f.write(content)
 
     def _export_to_csv(self, file_path):
         """Export formulas to CSV format."""
-        import csv
 
-        with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+        with open(file_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
             fieldnames = ['ID', 'Formula', 'Field', 'Topic', 'Sub-Topic', 'Variables']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
@@ -3268,8 +3234,6 @@ class Sheet:
 
     def _export_to_json(self, file_path):
         """Export formulas to JSON format."""
-        import json
-
         # Sort formulas by ID for consistent output
         sorted_data = sorted(self.master_data.items(), key=lambda x: int(x[0]))
 
@@ -3297,6 +3261,8 @@ class Sheet:
 
         content = f"# Formulas Collection ({total_formulas} formulas)\n\n"
         content += f"*Exported on {time.strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+        content += ("<!-- Font recommendation for best Unicode display:"
+                    " Cambria Math, STIX Two Math, DejaVu Sans -->\n\n")
         content += "---\n\n"
 
         # Sort formulas by ID
@@ -3305,7 +3271,9 @@ class Sheet:
         for formula_id, data in sorted_data:
             content += f"## #{formula_id}\n\n"
             content += f"**Formula:** `{data['main_info'][1]}`\n\n"
-            content += f"**Field:** {data['main_info'][2]} | **Topic:** {data['main_info'][3]} | **Sub-Topic:** {data['main_info'][4]}\n\n"
+            content += (f"**Field:** {data['main_info'][2]} |"
+                        f" **Topic:** {data['main_info'][3]} |"
+                        f" **Sub-Topic:** {data['main_info'][4]}\n\n")
 
             if data['variables']:
                 content += "**Variables:**\n"
@@ -3317,7 +3285,10 @@ class Sheet:
                     # Escape special Markdown characters and preserve subscripts
                     def escape_md(text):
                         # Preserve subscripts while escaping other characters
-                        text = text.replace('\\', '\\\\').replace('*', '\\*').replace('_', '\\_').replace('`', '\\`')
+                        text = (text.replace('\\', '\\\\')
+                                .replace('*', '\\*')
+                                .replace('_', '\\_')
+                                .replace('`', '\\`'))
                         return text
 
                     symbol_safe = escape_md(symbol)

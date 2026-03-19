@@ -38,7 +38,6 @@ class SettingsWindow:
         self.suggestion_strictness_var = None
         self.reflection_scope_var = None
         self.suggest_var = None
-        self.save_delay = None
         self.backup_var = None
         self.suggestion_count_var = None
         self.enable_suggestions_cb = None
@@ -102,7 +101,7 @@ class SettingsWindow:
         # Initialize Pages
         self.create_page("General", self.setup_general_page)
         self.create_page("Symbol Suggestions", self.setup_suggestions_page)
-        self.create_page("Autosave", self.setup_autosave_page)
+        self.create_page("Backups", self.setup_backup_page)
 
         self.show_page("General")
 
@@ -318,22 +317,12 @@ class SettingsWindow:
         TopMostToolTip(suggestion_spinbox, "Set maximum number of suggestions to show (1-5)", bootstyle=INFO)
         self.suggestion_spinbox = suggestion_spinbox
 
-    def setup_autosave_page(self, master):
+    def setup_backup_page(self, master):
         content = tb.Frame(master, padding=10)
         content.pack(fill=BOTH, expand=YES)
 
-        lf = tb.Labelframe(content, text=" Autosave Configuration ", padding=15)
+        lf = tb.Labelframe(content, text=" Backup Configuration ", padding=15)
         lf.pack(fill=X, pady=10)
-
-        row = tb.Frame(lf)
-        row.pack(fill=X, pady=5)
-
-        tb.Label(row, text="Auto-save Delay (sec):").pack(side=LEFT)
-
-        self.save_delay = tb.Spinbox(row, from_=1, to=60, width=5)
-        self.save_delay.set(self.parent.auto_save_delay // 1000)
-        self.save_delay.pack(side=RIGHT)
-
         self.backup_var = tb.BooleanVar(value=self.parent.enable_backups)
         tb.Checkbutton(
             lf,
@@ -417,8 +406,6 @@ class SettingsWindow:
         previous_always_on_top = self.parent.always_on_top
 
         self.parent.root.style.theme_use(self.theme_cb.get())
-
-        self.parent.auto_save_delay = int(self.save_delay.get()) * 1000
         self.parent.enable_backups = self.backup_var.get()
         self.parent.suggestion_strictness = self.suggestion_strictness_var.get()
         self.parent.enable_suggestions = self.suggest_var.get()

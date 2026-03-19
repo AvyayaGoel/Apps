@@ -1,90 +1,102 @@
-import ttkbootstrap as tb
 from ttkbootstrap.constants import INFO
 from ttkbootstrap.widgets.toast import ToastNotification
 
 from constants import TOAST_BASE_OFFSET, TOAST_SPACING, TOAST_DURATION
 
-
-def show_toast(message, bootstyle=INFO, duration=TOAST_DURATION):
-    """Show a toast notification with the given message."""
-    toast = ToastNotification(
-        title="Formula Sheet",
-        message=message,
-        duration=duration,
-        bootstyle=bootstyle
-    )
-    toast.show_toast()
+MAX_TOASTS = 5          # maximum visible toasts
+REMOVE_DELAY = 1300     # 1-second delay before removing the oldest toast
 
 
 class ToastManager:
     def __init__(self):
         self.root = None
         self.active = []
-        self.base_offset = TOAST_BASE_OFFSET
-        self.spacing = TOAST_SPACING
 
-    def bind_root(self, toast_root):
-        self.root = toast_root
+    def bind_root(self, root):
+        self.root = root
 
-    def show(self, win):
-        if not win or not win.winfo_exists():
+    def show(self, message, bootstyle=INFO, duration=TOAST_DURATION):
+
+        if len(self.active) >= MAX_TOASTS:
+            # Wait, remove oldest, then create new toast
+            self.root.after(
+                REMOVE_DELAY,
+                lambda: self._remove_then_create(message, bootstyle, duration)
+            )
+        else:
+            self._create_toast(message, bootstyle, duration)
+
+    def _remove_then_create(self, message, bootstyle, duration):
+
+        if self.active:
+            self.remove_toast(self.active[0])
+
+        self._create_toast(message, bootstyle, duration)
+
+    def _create_toast(self, message, bootstyle, duration):
+
+        toast = ToastNotification(
+            title="Formula Sheet",
+            message=message,
+            duration=duration,
+            bootstyle=bootstyle,
+        )
+
+        self.active.append(toast)
+
+        toast.show_toast()
+
+        self.root.after(10, lambda: self.position_toast(toast))
+
+        self.root.after(duration, lambda: self.remove_toast(toast))
+
+    def position_toast(self, toast):
+
+        if not toast.toplevel:
             return
 
-        # Calculate position to avoid overlap
-        self.root.update_idletasks()
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
+        toast.toplevel.update_idletasks()
 
-        # Get all existing toplevel windows
-        existing_windows = []
-        for widget in self.root.winfo_children():
-            if isinstance(widget, tb.Toplevel):
-                existing_windows.append(widget)
+        screen_w = toast.toplevel.winfo_screenwidth()
+        screen_h = toast.toplevel.winfo_screenheight()
 
-        # Calculate position for new toast
-        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 100
-        y = self.base_offset + len(self.active) * self.spacing
+        toast_w = toast.toplevel.winfo_width() or 300
+        toast_h = toast.toplevel.winfo_height() or 80
 
-        # Adjust if toast would go off-screen
-        if x + 200 > sw:
-            x = sw - 210
-        if y + 100 > sh:
-            y = sh - 110
+        index = self.active.index(toast)
 
-        win.geometry(f"+{x}+{y}")
-        self.active.append(win)
+        # stick fully to the right
+        x = screen_w - toast_w
 
-        # Auto-remove after toast destroys itself
-        self.root.after(10000, lambda: self._remove(win))
+        # stack upward from bottom
+        y = screen_h - toast_h - TOAST_BASE_OFFSET - (index * TOAST_SPACING)
 
-    def _remove(self, win):
-        if win in self.active:
-            self.active.remove(win)
-            self._reposition()
+        toast.toplevel.geometry(f"+{x}+{y}")
 
-    def _reposition(self):
-        self.root.update_idletasks()
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
+    def remove_toast(self, toast):
 
-        for i, win in enumerate(self.active):
-            if win.winfo_exists():
-                x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 100
-                y = self.base_offset + i * self.spacing
+        if toast not in self.active:
+            return
 
-                # Adjust if toast would go off-screen
-                if x + 200 > sw:
-                    x = sw - 210
-                if y + 100 > sh:
-                    y = sh - 110
+        if toast.toplevel:
+            toast.hide_toast()
 
-                win.geometry(f"+{x}+{y}")
+        self.active.remove(toast)
+
+        self.reposition()
+
+    def reposition(self):
+
+        for toast in self.active:
+            self.position_toast(toast)
 
 
-# Global toast manager instance
 toast_manager = ToastManager()
 
 
-def manage_toasts(root_window):
-    """Initialize toast manager with root window."""
-    toast_manager.bind_root(root_window)
+def manage_toasts(root):
+    toast_manager.bind_root(root)
+
+
+def show_toast(message, bootstyle=INFO, duration=TOAST_DURATION):
+    toast_manager.show(message, bootstyle, duration)

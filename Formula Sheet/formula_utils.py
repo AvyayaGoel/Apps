@@ -93,7 +93,7 @@ class FormulaUtils:
             return FormulaUtils.DEFAULT_CONFIG.copy()
 
     @staticmethod
-    def save_config(config_file: str, theme: str, auto_save_delay: int, enable_backups: bool,
+    def save_config(config_file: str, theme: str, enable_backups: bool,
                     enable_suggestions: bool, suggestion_strictness: str, max_suggestions: int,
                     user_macros: List, always_on_top: bool, subject_colors: Dict[str, str]) -> None:
         """
@@ -102,7 +102,6 @@ class FormulaUtils:
         Args:
             config_file: Path to configuration file
             theme: Current theme name
-            auto_save_delay: Auto-save delay in milliseconds
             enable_backups: Whether backups are enabled
             enable_suggestions: Whether suggestions are enabled
             suggestion_strictness: Suggestion strictness level
@@ -113,7 +112,6 @@ class FormulaUtils:
         """
         config = {
             "theme": theme,
-            "delay": auto_save_delay,
             "backups": enable_backups,
             "suggestions": enable_suggestions,
             "suggestion_strictness": suggestion_strictness,

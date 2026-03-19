@@ -2,11 +2,14 @@
 Centralized constants for the Calculus Console application.
 This file contains all shared constants used across multiple modules.
 """
-
+SAVE_FORMULA = "Save Formula"
 # =============================================================================
 # FONT CONSTANTS
 # =============================================================================
-FONT_FAMILY = "Segoe UI"
+FONT_FAMILY = "Cambria Math, STIX Two Math, DejaVu Sans, Times New Roman, Arial Unicode MS, Segoe UI, Arial, sans-serif"
+
+# Fallback font for systems that might not have mathematical fonts
+FALLBACK_FONT_FAMILY = "DejaVu Sans, Arial Unicode MS, Segoe UI, Arial, sans-serif"
 
 # =============================================================================
 # UI EVENT BINDINGS
@@ -65,13 +68,45 @@ DEFAULT_SUBJECT_COLORS = {
 # =============================================================================
 # DEFAULT SYMBOL SETS FOR KEYPAD
 # =============================================================================
-DEFAULT_SYMBOL_SETS = [
-    ["π", "θ", "λ", "Δ", "ρ", "ω", "Ω", "μ", "α", "β", "γ", "δ"],
-    ["·", "×", "÷", "±", "≈", "√", "°", "∞", "≠", "≤", "≥", "≡"],
-    ["∫", "∂", "∑", "∏", "∈", "∉", "⊆", "⊂", "∠", "⊥", "∥", "∝"],
-    ["⁺", "⁻", "⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"],
-    ["₊", "₋", "₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"]
+MAIN_SYMBOL_SETS = [
+    # Essential Greek letters (most frequently used)
+    ["π", "θ", "α", "β", "γ", "δ", "λ", "μ", "σ", "φ", "ω", "Δ"],
+    
+    # Core mathematical operators
+    ["×", "÷", "±", "√", "°", "∞", "≠", "≤", "≥", "≈", "·", "≡"],
+    
+    # Calculus and summation
+    ["∫", "∂", "∑", "∏", "∇", "∝", "∴", "∵", "∎", "∆", "∛", "∜"],
+    
+    # Complete set theory and logic (11th-12th grade essentials)
+    ["∈", "∉", "⊂", "⊃", "⊆", "⊇", "∪", "∩", "∅", "∀", "∃", "∄"],
+    ["⊄", "⊅", "⊈", "⊉", "⊊", "⊋", "∁", "∧", "∨", "⊕", "⊗", "⊙"],
+    
+    # Additional mathematical symbols for 11th-12th grade
+    ["∠", "∟", "∥", "⊥", "≅", "≈", "≡", "≢", "≣", "≜", "≝", "≞"],
+    
+    # Essential arrows and relations
+    ["→", "←", "↔", "⇒", "⇔", "↑", "↓", "↕", "⇐", "⇑", "⇓", "⇕"]
 ]
+
+# Super script symbols (numbers and letters)
+SUPER_SCRIPT_SYMBOLS = [
+    ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹", "⁺", "⁻"],
+    ["ᵃ", "ᵇ", "ᶜ", "ᵈ", "ᵉ", "ᶠ", "ᵍ", "ʰ", "ⁱ", "ʲ", "ᵏ", "ˡ"],
+    ["ᵐ", "ⁿ", "ᵒ", "ᵖ", "ʳ", "ˢ", "ᵗ", "ᵘ", "ᵛ", "ʷ", "ˣ", "ʸ"],
+    ["ᶻ", "ᴬ", "ᴮ", "ᴰ", "ᴱ", "ᴳ", "ᴴ", "ᴵ", "ᴶ", "ᴷ", "ᴸ", "ᴹ"],
+    ["ᴺ", "ᴼ", "ᴾ", "ᴿ", "ᵀ", "ᵁ", "ⱽ", "ᵂ", "ᵅ", "ᵝ", "ᵞ", "ᵟ"],
+    ["ᵋ", "ᶿ", "ᶥ", "ᶲ", "ᵠ", "ᵡ"]
+]
+
+# Sub script symbols (numbers and letters)
+SUB_SCRIPT_SYMBOLS = [
+    ["₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉", "₊", "₋"],
+    ["ₐ", "ₑ", "ₕ", "ᵢ", "ⱼ", "ₖ", "ₗ", "ₘ", "ₙ", "ₒ", "ₚ", "ᵣ"],
+    ["ₛ", "ₜ", "ᵤ", "ᵥ", "ₓ", "ᵧ"],
+]
+SUPER_SCRIPT = "Super Scripts"
+SUB_SCRIPT = "Sub Scripts"
 
 # =============================================================================
 # TOAST MANAGER CONSTANTS

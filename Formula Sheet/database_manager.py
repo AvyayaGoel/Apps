@@ -119,145 +119,6 @@ class DatabaseManager:
 
         self.connection.commit()
 
-    @staticmethod
-    def _save_variables_for_formula(cursor, formula_id: int, variables: List[Dict]) -> None:
-        """Save variables for a formula."""
-        for var in variables:
-            cursor.execute('''
-                INSERT INTO variables (formula_id, symbol, name, unit)
-                VALUES (?, ?, ?, ?)
-            ''', (formula_id, var['symbol'], var['name'], var.get('unit', '')))
-
-    def _update_existing_formula(self, cursor, formula_id: int, formula_text: str,
-                                 field: str, topic: str, sub_topic: str, variables: List[Dict]) -> None:
-        """Update an existing formula and its variables."""
-        cursor.execute('''
-            UPDATE formulas 
-            SET formula_text = ?, field = ?, topic = ?, sub_topic = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (formula_text, field, topic, sub_topic, formula_id))
-
-        cursor.execute(self.DELETE_VARIABLES_QUERY, (formula_id,))
-        self._save_variables_for_formula(cursor, formula_id, variables)
-
-    def _insert_new_formula(self, cursor, formula_id: int, formula_text: str,
-                            field: str, topic: str, sub_topic: str, variables: List[Dict]) -> bool:
-        """Insert a new formula and its variables. Returns True if successful."""
-        cursor.execute('''
-            INSERT OR IGNORE INTO formulas (id, formula_text, field, topic, sub_topic)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (formula_id, formula_text, field, topic, sub_topic))
-
-        if cursor.rowcount > 0:
-            self._save_variables_for_formula(cursor, formula_id, variables)
-            return True
-        return False
-
-    @staticmethod
-    def _extract_formula_data(formula_data: Dict) -> tuple:
-        """Extract formula data from the input dictionary."""
-        main_info = formula_data['main_info']
-        formula_text = main_info[1]
-        field = main_info[2]
-        topic = main_info[3]
-        sub_topic = main_info[4] if len(main_info) > 4 else "_GENERAL_"
-        variables = formula_data.get('variables', [])
-        return formula_text, field, topic, sub_topic, variables
-
-    def save_formulas_batch(self, formulas_data: Dict[int, Dict]) -> Tuple[int, int]:
-        """
-        Save multiple formulas (INSERT/UPDATE) in a single transaction for optimal performance.
-        
-        Args:
-            formulas_data: Dictionary mapping formula_id to formula_data
-            
-        Returns:
-            Tuple of (inserted_count, updated_count)
-        """
-        cursor = self.connection.cursor()
-        inserted_count = 0
-        updated_count = 0
-
-        try:
-            self.connection.execute("BEGIN TRANSACTION")
-
-            existing_ids = set()
-            if formulas_data:
-                cursor.execute(f"SELECT id FROM formulas WHERE id IN ({','.join(['?'] * len(formulas_data))})",
-                               tuple(formulas_data.keys()))
-                existing_ids = {row[0] for row in cursor.fetchall()}
-
-            for formula_id, formula_data in formulas_data.items():
-                formula_text, field, topic, sub_topic, variables = self._extract_formula_data(formula_data)
-
-                if formula_id in existing_ids:
-                    self._update_existing_formula(cursor, formula_id, formula_text, field, topic, sub_topic, variables)
-                    updated_count += 1
-                else:
-                    if self._insert_new_formula(cursor, formula_id, formula_text, field, topic, sub_topic, variables):
-                        inserted_count += 1
-
-            self.connection.commit()
-            logging.info(f"Batch saved: {inserted_count} inserted, {updated_count} updated")
-
-            return inserted_count, updated_count
-
-        except sqlite3.OperationalError as e:
-            self.connection.rollback()
-            logging.warning(f"Database locked during batch save, will retry: {e}")
-            return 0, 0
-        except Exception as e:
-            self.connection.rollback()
-            logging.error(f"Failed to batch save formulas: {e}")
-            return 0, 0
-
-    def add_formulas_batch(self, formulas_data: List[Dict]) -> int:
-        """Add multiple formulas in a single transaction for better performance."""
-        cursor = self.connection.cursor()
-        migrated_count = 0
-
-        try:
-            # Begin transaction
-            self.connection.execute("BEGIN TRANSACTION")
-
-            for formula_data in formulas_data:
-                cursor.execute('''
-                    INSERT INTO formulas (formula_text, field, topic, sub_topic)
-                    VALUES (?, ?, ?, ?)
-                ''', (
-                    formula_data['formula_text'],
-                    formula_data['field'],
-                    formula_data['topic'],
-                    formula_data['sub_topic']
-                ))
-                migrated_count += 1
-
-            # Commit transaction
-            self.connection.commit()
-            logging.info(f"Batch inserted {migrated_count} formulas")
-
-            # Add variables for each formula if they exist
-            for formula_data in formulas_data:
-                if formula_data.get('variables'):
-                    # Get the ID of the inserted formula
-                    cursor.execute('SELECT id FROM formulas WHERE formula_text = ? AND field = ? AND topic = ? LIMIT 1',
-                                   (formula_data['formula_text'], formula_data['field'], formula_data['topic']))
-                    result = cursor.fetchone()
-                    if result:
-                        formula_id = result[0]
-                        self.add_variables(formula_id, formula_data['variables'])
-
-            return migrated_count
-
-        except sqlite3.OperationalError as e:
-            self.connection.rollback()
-            logging.warning(f"Database locked during batch insert, will retry: {e}")
-            return 0
-        except Exception as e:
-            self.connection.rollback()
-            logging.error(f"Failed to batch insert formulas: {e}")
-            return 0
-
     def add_formula(self, formula_text: str, field: str, topic: str,
                     sub_topic: str = "_GENERAL_", variables: List[Dict] = None) -> int:
         """Add a new formula to the database."""
@@ -443,47 +304,6 @@ class DatabaseManager:
             logging.error(f"Failed to get all formulas: {e}")
             return []
 
-    def search_formulas(self, query: str = None, field: str = None,
-                        topic: str = None, sub_topic: str = None) -> List[Dict]:
-        """Search formulas with optional filters."""
-        cursor = self.connection.cursor()
-
-        try:
-            base_query = 'SELECT * FROM formulas WHERE 1=1'
-            params = []
-
-            if query:
-                base_query += ' AND formula_text LIKE ?'
-                params.append(f'%{query}%')
-
-            if field:
-                base_query += ' AND field = ?'
-                params.append(field)
-
-            if topic:
-                base_query += ' AND topic = ?'
-                params.append(topic)
-
-            if sub_topic:
-                base_query += ' AND sub_topic = ?'
-                params.append(sub_topic)
-
-            base_query += ' ORDER BY id'
-
-            cursor.execute(base_query, params)
-            formula_rows = cursor.fetchall()
-
-            formulas = []
-            for row in formula_rows:
-                formula = dict(row)
-                formula['variables'] = self.get_variables(formula['id'])
-                formulas.append(formula)
-
-            return formulas
-
-        except Exception as e:
-            logging.error(f"Failed to search formulas: {e}")
-            return []
 
     def add_variables(self, formula_id: int, variables: List[Dict]):
         """Add variables for a formula."""
@@ -597,41 +417,6 @@ class DatabaseManager:
             logging.error(f"Failed to migrate from JSON: {e}")
             return False, 0
 
-    def export_to_json(self, json_file_path: str) -> bool:
-        """Export database to JSON format (for backup or compatibility)."""
-        try:
-            formulas = self.get_all_formulas()
-
-            # Convert to the expected JSON format
-            json_data = []
-            for formula in formulas:
-                main_info = [
-                    formula['id'],
-                    formula['formula_text'],
-                    formula['field'],
-                    formula['topic'],
-                    formula['sub_topic']
-                ]
-
-                json_item = {
-                    'main_info': main_info,
-                    'variables': [
-                        {'symbol': var['symbol'], 'name': var['name'], 'unit': var['unit']}
-                        for var in formula['variables']
-                    ]
-                }
-                json_data.append(json_item)
-
-            with open(json_file_path, 'w', encoding='utf-8') as f:
-                json.dump(json_data, f, indent=4, ensure_ascii=False)
-
-            logging.info(f"Successfully exported {len(json_data)} formulas to JSON")
-            return True
-
-        except Exception as e:
-            logging.error(f"Failed to export to JSON: {e}")
-            return False
-
     def backup_database(self, backup_path: str) -> bool:
         """Create a backup of the database."""
         try:
@@ -641,19 +426,6 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Failed to backup database: {e}")
             return False
-
-    def create_system_backup(self, backup_dir: str = None) -> Optional[str]:
-        """Create a backup with system-like naming convention."""
-        if backup_dir is None:
-            backup_dir = os.path.dirname(self.db_path)
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_name = f"clr_cache_{timestamp}.tmp"
-        backup_path = os.path.join(backup_dir, backup_name)
-
-        if self.backup_database(backup_path):
-            return backup_path
-        return None
 
     def close(self):
         """Close database connection and optionally vacuum to reclaim space."""
