@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QGroupBox, QHeaderView, QMessageBox, QComboBox,
                              QFrame, QGridLayout, QMenu)
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QKeySequence, QShortcut, QIntValidator, QIcon
+from PyQt6.QtGui import QFont, QKeySequence, QShortcut, QIntValidator, QIcon, QAction
 from mendeleev import element
 # Import separated modules
 from constants import (
@@ -21,6 +21,8 @@ from chemlab_parser import ChemLabParser
 from chemlab_database import ChemLabDatabase
 from ChemicalKeyboard import ChemicalKeyboard
 from compound_learner import CompoundLearner
+from stats_dialog import StatsDialog
+from calculate_dialog import CalculateDialog
 
 logging.basicConfig(
     filename="chemlab_errors.log",
@@ -209,11 +211,16 @@ class ChemLab(QMainWindow):
         self.compounds_table = QTableWidget()
         self.add_reaction_btn = QPushButton(ADD_REACTION_BTN_TEXT)
         self.cancel_btn = QPushButton("❌ Cancel") # Cancel button for edit mode
+        self.cancel_calc_btn = QPushButton("❌ Cancel Calculation") # Cancel button for calculation selection mode
         self.filter_menu = QMenu(self)
         self.central_widget = None  # Will hold reference to central widget
 
         self._worker = None
         self._preview_worker = None  # Worker for live preview threading
+
+        # Calculate dialog and selection mode tracking
+        self.calculate_dialog = None
+        self.in_calculation_selection_mode = False
         
         # Compound learner for name/color suggestions
         self.compound_learner = CompoundLearner()
@@ -258,6 +265,9 @@ class ChemLab(QMainWindow):
         self._train_compound_learner()
         
     def init_ui(self):
+        # Create menubar first
+        self.create_menubar()
+        
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         
@@ -307,7 +317,7 @@ class ChemLab(QMainWindow):
         self.create_bottom_section(main_layout)
         
     def create_reactions_table(self, parent_layout):
-        reactions_group = QGroupBox("Saved Reactions")
+        self.reactions_group = QGroupBox("Saved Reactions")
         reactions_layout = QVBoxLayout()
 
         # Search controls
@@ -402,7 +412,13 @@ class ChemLab(QMainWindow):
         self.last_page_btn.clicked.connect(self.go_to_last_page)
         self.last_page_btn.setEnabled(False)
         nav_layout.addWidget(self.last_page_btn)
-        
+
+        # Cancel Calculation button (only visible during calculation selection mode)
+        self.cancel_calc_btn.setFont(nav_font)
+        self.cancel_calc_btn.clicked.connect(self.cancel_calculation_selection)
+        self.cancel_calc_btn.setVisible(False)  # Hidden by default
+        nav_layout.addWidget(self.cancel_calc_btn)
+
         # Spacer to push action buttons to the right
         nav_layout.addStretch()
         
@@ -423,8 +439,8 @@ class ChemLab(QMainWindow):
         nav_layout.addWidget(self.delete_reaction_btn)
         
         reactions_layout.addLayout(nav_layout)
-        reactions_group.setLayout(reactions_layout)
-        parent_layout.addWidget(reactions_group)
+        self.reactions_group.setLayout(reactions_layout)
+        parent_layout.addWidget(self.reactions_group)
         
     def create_compound_tables(self, parent_layout):
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -481,7 +497,39 @@ class ChemLab(QMainWindow):
         bottom_layout.addWidget(self.add_reaction_btn)
         
         parent_layout.addLayout(bottom_layout)
+
+    def create_menubar(self):
+        """Create menubar with Stats and Calculate menus"""
+        menubar = self.menuBar()
+        
+        # Tools menu
+        tools_menu = menubar.addMenu("Tools")
+        
+        # Stats action
+        stats_action = QAction("📊 Stats", self)
+        stats_action.triggered.connect(self.show_stats_dialog)
+        tools_menu.addAction(stats_action)
+        
+        # Calculate action
+        calc_action = QAction("🧮 Calculate", self)
+        calc_action.triggered.connect(self.show_calculate_dialog)
+        tools_menu.addAction(calc_action)
     
+    def show_stats_dialog(self):
+        """Show statistics dialog"""
+        dialog = StatsDialog(self.db, self)
+        dialog.exec()
+    
+    def show_calculate_dialog(self):
+        """Show calculation dialog"""
+        if not self.calculate_dialog:
+            self.calculate_dialog = CalculateDialog(self.db, self)
+            self.calculate_dialog.reaction_selected.connect(self.on_calculate_reaction_selected)
+            self.calculate_dialog.selection_cancelled.connect(self.on_calculate_selection_cancelled)
+        self.calculate_dialog.show()
+        self.calculate_dialog.raise_()
+        self.calculate_dialog.activateWindow()
+
     def on_reaction_key_press(self, event):
         """Handle key press events for subscript conversion"""
         # Check if a digit key (0-9) is pressed
@@ -607,35 +655,7 @@ class ChemLab(QMainWindow):
                 if key in current_data:
                     # Existing compound - merge with user data
                     existing = current_data[key]
-                    prev_formula = existing.get('prev_formula')
-                    prev_state = existing.get('prev_state_abbr')
-                    context_changed = (prev_formula != clean_formula) or (prev_state != detected_state_abbr)
-                    
-                    current_color = existing['color']
-                    prev_suggested_color = existing.get('prev_suggested_color')
-                    color_was_suggested = current_color == prev_suggested_color
-                    
-                    current_name = existing['name']
-                    prev_suggested_name = existing.get('prev_suggested_name')
-                    name_was_suggested = current_name == prev_suggested_name
-                    
-                    suggested_color = self._get_suggestion_or_preserve(
-                        context_changed, color_was_suggested, clean_formula, detected_state_abbr,
-                        current_color, is_color=True
-                    )
-                    suggested_name = self._get_suggestion_or_preserve(
-                        context_changed, name_was_suggested, clean_formula, detected_state_abbr,
-                        current_name, is_color=False
-                    )
-                    
-                    merged_compound = {
-                        'formula': clean_formula,
-                        'type': ctype,
-                        'name': suggested_name,
-                        'color': suggested_color,
-                        'state': detected_state if detected_state else existing['state'],
-                        'notes': existing['notes'],
-                    }
+                    merged_compound = self._build_existing_compound(existing, clean_formula, ctype, detected_state, detected_state_abbr)
                 else:
                     # New compound - use worker suggestions
                     merged_compound = compound
@@ -643,17 +663,6 @@ class ChemLab(QMainWindow):
                 new_compounds.append(merged_compound)
                 self._track_suggestions(len(new_compounds) - 1, clean_formula, detected_state_abbr, merged_compound)
             
-            self._update_table_incremental(new_compounds)
-        finally:
-            self.compounds_table.blockSignals(False)
-    
-    def _update_compounds_table_incremental(self, compounds):
-        """Update compounds table incrementally, preserving user-entered data"""
-        self.compounds_table.blockSignals(True)
-        try:
-            current_data = self._collect_current_table_data()
-            self._init_tracking_dicts()
-            new_compounds = self._build_compound_list(compounds, current_data)
             self._update_table_incremental(new_compounds)
         finally:
             self.compounds_table.blockSignals(False)
@@ -693,32 +702,6 @@ class ChemLab(QMainWindow):
             if not hasattr(self, attr):
                 setattr(self, attr, {})
 
-    def _build_compound_list(self, compounds, current_data):
-        """Build new compound list preserving existing data"""
-        new_compounds = []
-        seen_new = {}
-        for compound in compounds:
-            clean_formula, detected_state, detected_state_abbr = ChemLabParser.parse_compound(compound)
-            ctype = compound.get('type', '')
-            base_key = (clean_formula, ctype)
-            seen_new[base_key] = seen_new.get(base_key, 0) + 1
-            key = (clean_formula, ctype, seen_new[base_key])
-
-            compound_data = self._create_compound_data(
-                key, current_data, clean_formula, ctype, detected_state, detected_state_abbr
-            )
-            new_compounds.append(compound_data)
-            self._track_suggestions(len(new_compounds) - 1, clean_formula, detected_state_abbr, compound_data)
-        return new_compounds
-
-    def _create_compound_data(self, key, current_data, clean_formula, ctype, detected_state, detected_state_abbr):
-        """Create compound data dict, either from existing or as new"""
-        if key in current_data:
-            return self._build_existing_compound(
-                current_data[key], clean_formula, ctype, detected_state, detected_state_abbr
-            )
-        return self._build_new_compound(clean_formula, ctype, detected_state, detected_state_abbr)
-
     def _build_existing_compound(self, existing, clean_formula, ctype, detected_state, detected_state_abbr):
         """Build compound data from existing row data"""
         prev_formula = existing.get('prev_formula')
@@ -751,17 +734,6 @@ class ChemLab(QMainWindow):
             'notes': existing['notes'],
         }
 
-    def _build_new_compound(self, clean_formula, ctype, detected_state, detected_state_abbr):
-        """Build compound data for a new compound"""
-        return {
-            'formula': clean_formula,
-            'type': ctype,
-            'name': self._get_suggested_name(clean_formula) or '',
-            'color': self._get_suggested_color(clean_formula, detected_state_abbr),
-            'state': detected_state,
-            'notes': '',
-        }
-
     def _get_suggestion_or_preserve(self, context_changed, was_suggested, clean_formula,
                                      detected_state_abbr, current_value, is_color):
         """Get new suggestion if context changed and value was auto-suggested, else preserve"""
@@ -781,12 +753,8 @@ class ChemLab(QMainWindow):
         self._last_state_abbrs[row_idx] = detected_state_abbr
     
     def _update_table_incremental(self, new_compounds):
-        """Update table - create rows and fill empty cells with suggestions."""
-        current_rows = self.compounds_table.rowCount()
-        needed_rows = len(new_compounds)
-
-        if needed_rows > current_rows:
-            self.compounds_table.setRowCount(needed_rows)
+        """Update table - set exact row count and update all cells."""
+        self.compounds_table.setRowCount(len(new_compounds))
 
         for row, compound in enumerate(new_compounds):
             self._update_formula_cell(row, compound['formula'])
@@ -822,36 +790,46 @@ class ChemLab(QMainWindow):
         self._get_or_create_item(row, 4, display_state)
 
     def _update_notes_cell(self, row, notes):
-        """Update notes cell (column 5) - only if empty."""
-        if not self.compounds_table.item(row, 5):
+        """Update notes cell (column 5) - preserve user data, only fill if empty."""
+        item = self.compounds_table.item(row, 5)
+        if not item:
             self.compounds_table.setItem(row, 5, QTableWidgetItem(notes))
+        # If item exists, preserve user-entered notes
 
     def _update_name_cell(self, row, suggested_name):
-        """Update name cell (column 2) - fill only if empty."""
+        """Update name cell (column 2) - preserve user data unless it was auto-suggested."""
         name_item = self.compounds_table.item(row, 2)
+        prev_suggested = getattr(self, '_last_suggested_names', {}).get(row)
+        
         if not name_item:
             self.compounds_table.setItem(row, 2, QTableWidgetItem(suggested_name))
-        elif not name_item.text().strip() and suggested_name:
+        elif name_item.text() == prev_suggested:
+            # Was auto-suggested, update with new suggestion
             name_item.setText(suggested_name)
+        # Else: user-entered, preserve it
 
     @staticmethod
-    def _should_update_color(color_item, suggested_color):
-        """Check if color cell should be updated."""
+    def _should_update_color(color_item, suggested_color, prev_suggested):
+        """Check if color cell should be updated based on tracking."""
         if not suggested_color:
             return False
         if not color_item:
             return True
-        current = color_item.text().strip().lower()
-        return current == '' or current == DEFAULT_COLOR
+        current = color_item.text()
+        # Update if empty, default, or matches previous suggestion
+        return current.strip() == '' or current.lower() == DEFAULT_COLOR.lower() or current == prev_suggested
 
     def _update_color_cell(self, row, suggested_color):
-        """Update color cell (column 3) - fill only if empty or default."""
+        """Update color cell (column 3) - preserve user data unless it was auto-suggested."""
         color_item = self.compounds_table.item(row, 3)
+        prev_suggested = getattr(self, '_last_suggested_colors', {}).get(row)
         current_color = color_item.text() if color_item else "(empty)"
-        logging.info(f"[PREVIEW COLOR] Row {row}: current={current_color!r}, suggested={suggested_color!r}")
-        if not self._should_update_color(color_item, suggested_color):
-            logging.info(f"[PREVIEW COLOR] Row {row}: Skipping update (should_update=False)")
+        logging.info(f"[PREVIEW COLOR] Row {row}: current={current_color!r}, suggested={suggested_color!r}, prev_suggested={prev_suggested!r}")
+        
+        if not self._should_update_color(color_item, suggested_color, prev_suggested):
+            logging.info(f"[PREVIEW COLOR] Row {row}: Skipping update (user-entered)")
             return
+            
         logging.info(f"[PREVIEW COLOR] Row {row}: Updating color to {suggested_color!r}")
         if not color_item:
             self.compounds_table.setItem(row, 3, QTableWidgetItem(suggested_color))
@@ -1030,7 +1008,6 @@ class ChemLab(QMainWindow):
         self.reaction_entry.blockSignals(True)
         self.reaction_entry.setText(balanced)
         self.reaction_entry.blockSignals(False)
-        self.update_preview_tables()
     
     def _on_save_finished(self, success, error_message):
         """Handle save completion from worker thread"""
@@ -1230,8 +1207,34 @@ class ChemLab(QMainWindow):
         """Handle reaction selection and enable/disable action buttons"""
         selected_items = self.reactions_table.selectedItems()
         has_selection = len(selected_items) > 0
-        
-        # Enable/disable action buttons based on selection
+
+        # If in calculation selection mode, handle selection differently
+        if self.in_calculation_selection_mode and has_selection:
+            # Get the selected reaction data
+            selected_row = selected_items[0].row()
+            reaction_item = self.reactions_table.item(selected_row, 0)
+            type_item = self.reactions_table.item(selected_row, 1)
+
+            if reaction_item:
+                reaction_id = reaction_item.data(Qt.ItemDataRole.UserRole)
+                reaction_text = reaction_item.text()
+                reaction_type = type_item.text() if type_item else "Unknown"
+
+                # Find the full reaction data from all_reactions
+                reaction_data = None
+                for reaction in self.all_reactions:
+                    if reaction['id'] == reaction_id:
+                        reaction_data = reaction
+                        break
+
+                if reaction_data and self.calculate_dialog:
+                    # Disable selection mode
+                    self.disable_reaction_selection_mode()
+                    # Notify the dialog
+                    self.calculate_dialog.on_reaction_selected(reaction_data)
+            return
+
+        # Normal mode: Enable/disable action buttons based on selection
         self.view_reaction_btn.setEnabled(has_selection)
         self.edit_reaction_btn.setEnabled(has_selection)
         self.delete_reaction_btn.setEnabled(has_selection)
@@ -1275,6 +1278,7 @@ class ChemLab(QMainWindow):
     def clear_search(self):
         """Clear search field"""
         self.search_entry.clear()
+        self._safe_apply_filter("All")
         self.current_page = 1
         self.apply_filter_and_pagination()
     
@@ -1304,6 +1308,10 @@ class ChemLab(QMainWindow):
             self.apply_filter_and_pagination()
         except Exception as e:
             logging.error(f"Error in apply_type_filter: {e}")
+
+    def set_type_filter(self, reaction_type):
+        """Public method to set type filter from external dialogs (e.g., StatsDialog)"""
+        self.apply_type_filter(reaction_type)
     
     def apply_filter_and_pagination(self):
         """Apply search filter, type filter, and pagination to reactions"""
@@ -2013,6 +2021,88 @@ class ChemLab(QMainWindow):
         if self.view_overlay:
             self.view_overlay.raise_()
             self.view_overlay.setFocus()
+
+    def enable_reaction_selection_mode(self, calculate_dialog):
+        """Enable reaction selection mode for calculation dialog"""
+        self.in_calculation_selection_mode = True
+        self.calculate_dialog = calculate_dialog
+
+        # Show the cancel calculation button
+        self.cancel_calc_btn.setVisible(True)
+
+        # Disable form entry elements
+        self.reaction_entry.setEnabled(False)
+        self.reaction_type_cb.setEnabled(False)
+        self.keyboard_btn.setEnabled(False)
+        self.add_reaction_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(False)
+
+        # Disable View, Edit, Delete buttons
+        self.view_reaction_btn.setEnabled(False)
+        self.edit_reaction_btn.setEnabled(False)
+        self.delete_reaction_btn.setEnabled(False)
+
+        # Keep pagination and search enabled
+        # (first_page_btn, prev_page_btn, page_entry, next_page_btn, last_page_btn, search_entry, clear_search_btn, filter_btn)
+
+        # Highlight the Reaction Entry group to indicate selection mode
+        self.reactions_group.setStyleSheet("""
+            QGroupBox {
+                border: 3px solid #0078d4;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                color: #0078d4;
+            }
+        """)
+
+        # Clear any existing selection
+        self.reactions_table.clearSelection()
+
+        # Show instruction to user
+        self.statusBar().showMessage("Select a reaction from the table for calculation...", 5000)
+
+    def disable_reaction_selection_mode(self):
+        """Disable reaction selection mode and restore normal UI"""
+        self.in_calculation_selection_mode = False
+
+        # Hide the cancel calculation button
+        self.cancel_calc_btn.setVisible(False)
+
+        # Re-enable form entry elements
+        self.reaction_entry.setEnabled(True)
+        self.reaction_type_cb.setEnabled(True)
+        self.keyboard_btn.setEnabled(True)
+        # Add button state will be managed by on_reaction_changed
+        self.cancel_btn.setEnabled(True)
+
+        # Restore table selection behavior - selection will enable View/Edit/Delete if appropriate
+        self.on_reaction_selected()
+
+        # Restore normal styling on reaction group
+        self.reactions_group.setStyleSheet("")
+
+        self.statusBar().clearMessage()
+
+    def cancel_calculation_selection(self):
+        """Handle cancel button click during calculation selection mode"""
+        self.disable_reaction_selection_mode()
+
+        # Notify the calculate dialog that selection was cancelled
+        if self.calculate_dialog:
+            self.calculate_dialog.on_selection_cancelled()
+
+    def on_calculate_reaction_selected(self, reaction):
+        """Handle reaction selected for calculation"""
+        # This is called when a reaction is selected during calculation mode
+        # The actual selection happens in on_reaction_selected when in_calculation_selection_mode is True
+        pass  # The dialog is already notified via the signal
+
+    def on_calculate_selection_cancelled(self):
+        """Handle calculation selection being cancelled"""
+        # Clean up if needed
+        pass
 
 def main():
     app = QApplication(sys.argv)

@@ -4,7 +4,7 @@ Constants for ChemLab Application
 import sys
 import os
 # Arrow types for reaction detection
-ARROWS = ['→', '←', '⇌', '⇋', '↔', '↑', '↓', '->', '<-', '<=>', '=>', '<->']
+ARROWS = ['→', '←', '⇌', '⇋', '↔', '->', '<-', '<=>', '=>', '<->']
 
 # Subscript mapping for number conversion
 SUBSCRIPT_MAP = str.maketrans("₀₁₂₃₄₅₆₇₈₉", "0123456789")

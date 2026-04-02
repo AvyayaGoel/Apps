@@ -350,6 +350,32 @@ class ChemLabDatabase:
             return False
 
 
+    def get_total_reaction_count(self) -> int:
+        """Get total count of all reactions in the database."""
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute('SELECT COUNT(*) FROM reactions')
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        except Exception as e:
+            logging.error(f"Failed to get total reaction count: {e}")
+            return 0
+
+    def get_reaction_counts_by_type(self) -> List[tuple]:
+        """Get count of reactions grouped by type, sorted by count descending."""
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute('''
+                SELECT reaction_type, COUNT(*) as count
+                FROM reactions
+                GROUP BY reaction_type
+                ORDER BY count DESC, reaction_type ASC
+            ''')
+            return [(row[0], row[1]) for row in cursor.fetchall()]
+        except Exception as e:
+            logging.error(f"Failed to get reaction counts by type: {e}")
+            return []
+
     def close(self):
         """Close database connection."""
         try:

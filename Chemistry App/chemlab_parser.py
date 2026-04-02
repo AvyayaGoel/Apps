@@ -12,12 +12,7 @@ from constants import ARROWS, SUBSCRIPT_MAP, STATE_SYMBOL_PATTERN, SUBSCRIPT_DIS
 
 class ChemLabParser:
     """Handles reaction parsing, element extraction, and validation"""
-    
-    @staticmethod
-    def has_arrow(reaction):
-        """Check if reaction contains any arrow"""
-        return any(arrow in reaction for arrow in ARROWS)
-    
+
     @staticmethod
     def split_reaction(reaction):
         """Split reaction into reactants and products"""
