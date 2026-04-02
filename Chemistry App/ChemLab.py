@@ -1,6 +1,7 @@
 import sys
 import re
 import logging
+import shutil
 from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QTableWidget, QTableWidgetItem, 
@@ -8,12 +9,14 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QGroupBox, QHeaderView, QMessageBox, QComboBox,
                              QFrame, QGridLayout, QMenu)
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QKeySequence, QShortcut
+from PyQt6.QtGui import QFont, QKeySequence, QShortcut, QIntValidator, QIcon
 from mendeleev import element
 # Import separated modules
-from constants import (ARROWS, COMMON_REACTION_TYPES, DEFAULT_COLOR, REACTIONS_COLUMNS, SUBSCRIPT_MAP,
-                      COMPOUNDS_COLUMNS, ELEMENTS_COLUMNS, SUBSCRIPT_DIGITS, STATE_NAMES, STATE_ABBREVIATIONS,
-                      ARROW_MAP, SUBSCRIPT_DISPLAY_MAP, STATE_SYMBOL_PATTERN, ADD_REACTION_BTN_TEXT)
+from constants import (
+    ARROWS, COMMON_REACTION_TYPES, DEFAULT_COLOR, REACTIONS_COLUMNS,
+    COMPOUNDS_COLUMNS, ELEMENTS_COLUMNS, SUBSCRIPT_DIGITS, STATE_NAMES,
+    STATE_ABBREVIATIONS, ADD_REACTION_BTN_TEXT, COLOR_STYLE, FONT, ICON_PATH
+                       )
 from chemlab_parser import ChemLabParser
 from chemlab_database import ChemLabDatabase
 from ChemicalKeyboard import ChemicalKeyboard
@@ -39,6 +42,17 @@ class SaveReactionWorker(QThread):
         self.current_reaction_id = current_reaction_id
         self.compounds_data = compounds_data or {}  # Dict keyed by (clean_formula, type) with user data
     
+    def _save_elements(self, reaction):
+        """Extract and save elements from reaction to database."""
+        elements = ChemLabParser.extract_elements_from_reaction(reaction)
+        for element_symbol in elements:
+            try:
+                elem = element(element_symbol)
+                self.db.add_or_update_element(element_symbol, elem.name, elem.atomic_number)
+            except (ValueError, KeyError):
+                self.db.add_or_update_element(element_symbol, 'Unknown', 0)
+        return elements
+
     def run(self):
         try:
             self.progress.emit("Auto-balancing reaction...")
@@ -60,15 +74,7 @@ class SaveReactionWorker(QThread):
                 reaction_id = self.db.add_reaction(self.reaction, self.reaction_type)
             
             self.progress.emit("Extracting elements...")
-            
-            # Save elements
-            elements = ChemLabParser.extract_elements_from_reaction(self.reaction)
-            for element_symbol in elements:
-                try:
-                    elem = element(element_symbol)
-                    self.db.add_or_update_element(element_symbol, elem.name, elem.atomic_number)
-                except Exception:
-                    self.db.add_or_update_element(element_symbol, 'Unknown', 0)
+            self._save_elements(self.reaction)
             
             self.progress.emit("Saving compounds...")
             
@@ -78,6 +84,9 @@ class SaveReactionWorker(QThread):
             
             # Save compounds
             reactants, products = ChemLabParser.split_reaction(self.reaction)
+            logging.info(f"DEBUG WORKER: Split reaction - reactants='{reactants}', products='{products}'")
+            logging.info(f"DEBUG WORKER: compounds_data keys received: {list(self.compounds_data.keys())}")
+            
             if reactants and products:
                 all_compounds = []
                 for comp in reactants.split('+'):
@@ -85,20 +94,89 @@ class SaveReactionWorker(QThread):
                 for comp in products.split('+'):
                     all_compounds.append((comp.strip(), 'Product'))
                 
+                logging.info(f"DEBUG WORKER: all_compounds list: {all_compounds}")
+                
                 for formula, comp_type in all_compounds:
-                    state, clean_formula = ChemLabParser.extract_state_symbol(formula)
+                    # Normalize first to strip coefficients and state symbols
+                    clean_formula = ChemLabParser.normalize_formula(formula)
+                    state, _ = ChemLabParser.extract_state_symbol(formula)
                     # Look up user-entered data from table
                     key = (clean_formula, comp_type)
                     user_data = self.compounds_data.get(key, {})
                     name = user_data.get('name', '')
                     color = user_data.get('color', '')
                     notes = user_data.get('notes', '')
+                    logging.info(f"DEBUG WORKER: Saving compound - formula='{clean_formula}', type='{comp_type}', key={key}")
+                    logging.info(f"DEBUG WORKER:   user_data found={bool(user_data)}, name='{name}', color='{color}', notes='{notes}'")
                     self.db.add_compound(reaction_id, clean_formula, comp_type, name, color, state, notes)
             
             self.finished.emit(True, "", reaction_id)
             
         except Exception as e:
+            logging.error(f"DEBUG WORKER: Exception in run: {e}", exc_info=True)
             self.finished.emit(False, str(e), 0)
+
+
+class PreviewWorker(QThread):
+    """Worker thread for live preview updates to prevent UI lag"""
+    finished = pyqtSignal(dict, list)  # elements_data, compounds_list
+    error = pyqtSignal(str)  # error message
+    
+    def __init__(self, reaction, compound_learner):
+        super().__init__()
+        self.reaction = reaction
+        self.compound_learner = compound_learner
+    
+    def run(self):
+        try:
+            # Validate reaction
+            validation_result = ChemLabParser.validate_reaction(self.reaction)
+            if not validation_result['valid'] and not validation_result.get('allow_save', False):
+                self.error.emit("Invalid reaction")
+                return
+            
+            # Extract elements and look up their info
+            elements = ChemLabParser.extract_elements_from_reaction(self.reaction)
+            preview_elements = {}
+            for element_symbol in elements:
+                try:
+                    elem = element(element_symbol)
+                    preview_elements[element_symbol] = {
+                        'name': elem.name,
+                        'atomic_number': elem.atomic_number
+                    }
+                except (ValueError, KeyError):
+                    preview_elements[element_symbol] = {
+                        'name': 'Unknown',
+                        'atomic_number': 0
+                    }
+            
+            # Extract compounds with suggestions
+            compounds = ChemLabParser.extract_compounds_from_reaction(self.reaction)
+            preview_compounds = []
+            
+            for compound in compounds:
+                clean_formula, detected_state, detected_state_abbr = ChemLabParser.parse_compound(compound)
+                
+                # Get suggestions from learner
+                suggested_name = self.compound_learner.get_name(clean_formula) or ''
+                suggested_color = self.compound_learner.get_color(clean_formula, detected_state_abbr)
+                
+                preview_compounds.append({
+                    'formula': clean_formula,
+                    'type': compound.get('type', ''),
+                    'name': suggested_name,
+                    'color': suggested_color,
+                    'state': detected_state,
+                    'state_abbr': detected_state_abbr,
+                    'notes': ''
+                })
+            
+            self.finished.emit(preview_elements, preview_compounds)
+            
+        except Exception as e:
+            logging.error(f"Preview worker error: {e}", exc_info=True)
+            self.error.emit(str(e))
 
 
 class ChemLab(QMainWindow):
@@ -106,7 +184,7 @@ class ChemLab(QMainWindow):
         super().__init__()
         self.setWindowTitle("ChemLab - Chemistry Laboratory Manager")
         self.setGeometry(100, 100, 1400, 800)
-        
+        self.setWindowIcon(QIcon(ICON_PATH))
         # Database
         self.db = ChemLabDatabase("chemlab_data.db")
         
@@ -115,6 +193,8 @@ class ChemLab(QMainWindow):
         self.elements_data = {}
         self.viewing_reaction_id = None  # Track which reaction is being viewed
         self.view_overlay = None  # Overlay widget for viewing reactions
+        self.compound_overlay = None  # Overlay widget for viewing compound stats
+        self.compound_overlay_parent = None  # Track parent overlay to return to
         self.current_reaction_id = None  # For edit mode tracking
         self.keyboard_window = None
         self.last_focused_widget = None
@@ -133,9 +213,10 @@ class ChemLab(QMainWindow):
         self.central_widget = None  # Will hold reference to central widget
 
         self._worker = None
+        self._preview_worker = None  # Worker for live preview threading
         
         # Compound learner for name/color suggestions
-        self.compound_learner = CompoundLearner(default_color=DEFAULT_COLOR)
+        self.compound_learner = CompoundLearner()
 
         # Search and pagination controls (initialized in create_reactions_table)
         self.search_entry = None
@@ -147,10 +228,16 @@ class ChemLab(QMainWindow):
         self.page_label = None
         self.next_page_btn = None
         self.last_page_btn = None
-        
+
+        # Clear suggestion tracking dictionaries to avoid stale data
+        self._last_suggested_colors = {}
+        self._last_suggested_names = {}
+        self._last_formulas = {}
+        self._last_state_abbrs = {}
+
         # Pagination state
         self.current_page = 1
-        self.items_per_page = 7
+        self.items_per_page = 5
         self.filtered_reactions = []
         self.all_reactions = []
         self.current_type_filter = "All"
@@ -176,12 +263,6 @@ class ChemLab(QMainWindow):
         
         # Main layout
         main_layout = QVBoxLayout(self.central_widget)
-        
-        # Title
-        title_label = QLabel("ChemLab - Chemistry Laboratory Manager")
-        title_label.setFont(QFont("Arial", 16, QFont.Weight.Bold))
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title_label)
         
         # Reactions Table Section (at the top)
         self.create_reactions_table(main_layout)
@@ -248,12 +329,19 @@ class ChemLab(QMainWindow):
         reactions_layout.addLayout(search_layout)
         
         # Reactions table
+        table_font = QFont(FONT, 13)
         self.reactions_table.setColumnCount(2)
         self.reactions_table.setHorizontalHeaderLabels(REACTIONS_COLUMNS)
-        self.reactions_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.reactions_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header = self.reactions_table.horizontalHeader()
+        if header:
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.reactions_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.reactions_table.itemSelectionChanged.connect(self.on_reaction_selected)
+        self.reactions_table.setFont(table_font)
+        self.reactions_table.setMaximumHeight(230)
+        # noinspection PyUnresolvedReferences
+        self.reactions_table.verticalHeader().setDefaultSectionSize(40)
         self.reactions_table.setAlternatingRowColors(True)
         
         reactions_layout.addWidget(self.reactions_table)
@@ -262,7 +350,7 @@ class ChemLab(QMainWindow):
         nav_layout = QHBoxLayout()
         
         # Create font for navigation elements
-        nav_font = QFont("Arial", 12)
+        nav_font = QFont(FONT, 12)
         
         # First page button
         self.first_page_btn = QPushButton("«")
@@ -340,14 +428,16 @@ class ChemLab(QMainWindow):
         
     def create_compound_tables(self, parent_layout):
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        
+
         # Elements Table
         elements_group = QGroupBox("Elements Used in Reactions")
         elements_layout = QVBoxLayout()
 
         self.elements_table.setColumnCount(3)
         self.elements_table.setHorizontalHeaderLabels(ELEMENTS_COLUMNS)
-        self.elements_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header = self.elements_table.horizontalHeader()
+        if header:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.elements_table.setAlternatingRowColors(True)
         elements_layout.addWidget(self.elements_table)
         
@@ -360,7 +450,9 @@ class ChemLab(QMainWindow):
 
         self.compounds_table.setColumnCount(6)
         self.compounds_table.setHorizontalHeaderLabels(COMPOUNDS_COLUMNS)
-        self.compounds_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header = self.compounds_table.horizontalHeader()
+        if header:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.compounds_table.setAlternatingRowColors(True)
         self.compounds_table.itemChanged.connect(self.on_compound_item_changed)
         compounds_layout.addWidget(self.compounds_table)
@@ -460,192 +552,311 @@ class ChemLab(QMainWindow):
         self.preview_timer.stop()
         self.preview_timer.start(600)
 
-    @staticmethod
-    def _normalize_formula(formula):
-        if not formula:
-            return ''
-        value = str(formula).strip()
-        value = re.sub(r'^\d+', '', value)
-        value = re.sub(STATE_SYMBOL_PATTERN, '', value)
-        value = value.translate(SUBSCRIPT_MAP)
-        return value.strip()
-
-    @staticmethod
-    def _display_formula(formula):
-        """Convert formula for display with Unicode subscripts (H2O → H₂O)"""
-        if not formula:
-            return ''
-        value = str(formula).strip()
-        value = re.sub(r'^\d+', '', value)  # Remove coefficients
-        # Don't strip state symbols here - let them remain for display
-        return value.translate(SUBSCRIPT_DISPLAY_MAP)
-
-    @staticmethod
-    def _convert_arrows_to_unicode(text):
-        """Convert keyboard arrows in text to Unicode arrows"""
-        result = text
-        for arrow, unicode_arrow in ARROW_MAP.items():
-            result = result.replace(arrow, unicode_arrow)
-        return result
-    
     def update_preview_tables(self):
-        """Update elements and compounds tables for live preview - preserves user-entered data"""
+        """Update elements and compounds tables for live preview using threaded worker"""
         reaction = self.reaction_entry.text().strip()
 
         # Don't clear tables if reaction is empty - this preserves user data while typing
         if not reaction:
             return
             
-        # Validate reaction before showing preview
-        validation_result = ChemLabParser.validate_reaction(reaction)
-        if not validation_result['valid']:
-            if not validation_result.get('allow_save', False):
-                return  # Don't show preview for invalid elements
+        # Cancel any existing preview worker
+        if self._preview_worker and self._preview_worker.isRunning():
+            self._preview_worker.wait(100)  # Wait briefly for cleanup
         
-        # Extract elements for preview
-        elements = ChemLabParser.extract_elements_from_reaction(reaction)
-        preview_elements = {}
-        for element_symbol in elements:
-            try:
-                elem = element(element_symbol)
-                preview_elements[element_symbol] = {
-                    'name': elem.name,
-                    'atomic_number': elem.atomic_number
-                }
-            except Exception:
-                preview_elements[element_symbol] = {
-                    'name': 'Unknown',
-                    'atomic_number': 0
-                }
-        
-        # Update elements table
-        self.update_elements_table_preview(preview_elements)
-        # Extract compounds from reaction and update table incrementally
-        compounds = ChemLabParser.extract_compounds_from_reaction(reaction)
-        self._update_compounds_table_incremental(compounds)
+        # Create and start preview worker thread
+        self._preview_worker = PreviewWorker(reaction, self.compound_learner)
+        self._preview_worker.finished.connect(self._on_preview_finished)
+        self._preview_worker.error.connect(self._on_preview_error)
+        self._preview_worker.start()
     
-    def _update_compounds_table_incremental(self, compounds):
-        """Update compounds table incrementally, preserving user-entered data"""
-        # Block signals to prevent unwanted updates
+    def _on_preview_finished(self, elements_data, compounds_list):
+        """Handle preview worker completion - update tables in main thread"""
+        # Update elements table
+        self.update_elements_table_preview(elements_data)
+        # Update compounds table with incremental merge
+        self._update_compounds_table_from_worker(compounds_list)
+    
+    @staticmethod
+    def _on_preview_error(error_message):
+        """Handle preview worker error"""
+        logging.warning(f"Preview worker error: {error_message}")
+        # Don't show UI errors for preview - it's non-critical
+    
+    def _update_compounds_table_from_worker(self, worker_compounds):
+        """Update compounds table from worker data, preserving user-entered data"""
         self.compounds_table.blockSignals(True)
-        
         try:
-            # Get current table data keyed by (formula, type, occurrence)
-            current_data = {}
-            seen = {}
-            for row in range(self.compounds_table.rowCount()):
-                formula_item = self.compounds_table.item(row, 0)
-                type_item = self.compounds_table.item(row, 1)
-                if not formula_item or not type_item:
-                    continue
-
-                formula = formula_item.text()
-                ctype = type_item.text()
-                seen_key = (formula, ctype)
-                seen[seen_key] = seen.get(seen_key, 0) + 1
-                key = (formula, ctype, seen[seen_key])
-
-                current_data[key] = {
-                    'row': row,
-                    'name': self._get_cell_text(row, 2),
-                    'color': self._get_cell_text(row, 3),
-                    'state': self._get_cell_text(row, 4),
-                    'notes': self._get_cell_text(row, 5),
-                }
+            current_data = self._collect_current_table_data()
+            self._init_tracking_dicts()
             
-            # Build new compound list preserving existing data
+            # Merge worker compounds with existing user data
             new_compounds = []
             seen_new = {}
-            for compound in compounds:
-                clean_formula = re.sub(r'^\d+', '', compound['formula'])
-                clean_formula = re.sub(STATE_SYMBOL_PATTERN, '', clean_formula)
-                clean_formula = clean_formula.translate(SUBSCRIPT_MAP)
+            
+            for compound in worker_compounds:
+                clean_formula = compound['formula']
+                ctype = compound['type']
+                detected_state = compound['state']
+                detected_state_abbr = compound['state_abbr']
                 
-                # Extract state from formula if present
-                state_match = re.search(STATE_SYMBOL_PATTERN, compound['formula'])
-                detected_state_abbr = state_match.group(1) if state_match else ''
-                detected_state = STATE_NAMES.get(detected_state_abbr, '')
-
-                ctype = compound.get('type', '')
                 base_key = (clean_formula, ctype)
                 seen_new[base_key] = seen_new.get(base_key, 0) + 1
                 key = (clean_formula, ctype, seen_new[base_key])
                 
                 if key in current_data:
-                    # Preserve user data, only update auto-detected state if formula has it
+                    # Existing compound - merge with user data
                     existing = current_data[key]
-                    new_compounds.append({
-                        'formula': clean_formula,
-                        'type': ctype,
-                        'name': existing['name'],  # Preserve user-entered name
-                        'color': existing['color'],  # Preserve user-entered color
-                        'state': detected_state if detected_state else existing['state'],  # Update only if state in formula
-                        'notes': existing['notes'],  # Preserve user-entered notes
-                    })
-                else:
-                    # New compound - use learner suggestions
-                    # Get suggested name (state-agnostic)
-                    suggested_name = self._get_suggested_name(clean_formula) or ''
-                    # Get suggested color (state-aware)
-                    suggested_color = self._get_suggested_color(clean_formula, detected_state_abbr)
+                    prev_formula = existing.get('prev_formula')
+                    prev_state = existing.get('prev_state_abbr')
+                    context_changed = (prev_formula != clean_formula) or (prev_state != detected_state_abbr)
                     
-                    new_compounds.append({
+                    current_color = existing['color']
+                    prev_suggested_color = existing.get('prev_suggested_color')
+                    color_was_suggested = current_color == prev_suggested_color
+                    
+                    current_name = existing['name']
+                    prev_suggested_name = existing.get('prev_suggested_name')
+                    name_was_suggested = current_name == prev_suggested_name
+                    
+                    suggested_color = self._get_suggestion_or_preserve(
+                        context_changed, color_was_suggested, clean_formula, detected_state_abbr,
+                        current_color, is_color=True
+                    )
+                    suggested_name = self._get_suggestion_or_preserve(
+                        context_changed, name_was_suggested, clean_formula, detected_state_abbr,
+                        current_name, is_color=False
+                    )
+                    
+                    merged_compound = {
                         'formula': clean_formula,
                         'type': ctype,
                         'name': suggested_name,
                         'color': suggested_color,
-                        'state': detected_state,
-                        'notes': '',
-                    })
-                    
-            self._update_table_incremental(new_compounds)
+                        'state': detected_state if detected_state else existing['state'],
+                        'notes': existing['notes'],
+                    }
+                else:
+                    # New compound - use worker suggestions
+                    merged_compound = compound
+                
+                new_compounds.append(merged_compound)
+                self._track_suggestions(len(new_compounds) - 1, clean_formula, detected_state_abbr, merged_compound)
             
+            self._update_table_incremental(new_compounds)
         finally:
             self.compounds_table.blockSignals(False)
     
+    def _update_compounds_table_incremental(self, compounds):
+        """Update compounds table incrementally, preserving user-entered data"""
+        self.compounds_table.blockSignals(True)
+        try:
+            current_data = self._collect_current_table_data()
+            self._init_tracking_dicts()
+            new_compounds = self._build_compound_list(compounds, current_data)
+            self._update_table_incremental(new_compounds)
+        finally:
+            self.compounds_table.blockSignals(False)
+
+    def _collect_current_table_data(self):
+        """Collect current table data keyed by (formula, type, occurrence)"""
+        current_data = {}
+        seen = {}
+        for row in range(self.compounds_table.rowCount()):
+            formula_item = self.compounds_table.item(row, 0)
+            type_item = self.compounds_table.item(row, 1)
+            if not formula_item or not type_item:
+                continue
+
+            formula = formula_item.text()
+            ctype = type_item.text()
+            seen_key = (formula, ctype)
+            seen[seen_key] = seen.get(seen_key, 0) + 1
+            key = (formula, ctype, seen[seen_key])
+
+            current_data[key] = {
+                'row': row,
+                'name': self._get_cell_text(row, 2),
+                'color': self._get_cell_text(row, 3),
+                'state': self._get_cell_text(row, 4),
+                'notes': self._get_cell_text(row, 5),
+                'prev_suggested_color': getattr(self, '_last_suggested_colors', {}).get(row),
+                'prev_suggested_name': getattr(self, '_last_suggested_names', {}).get(row),
+                'prev_formula': getattr(self, '_last_formulas', {}).get(row),
+                'prev_state_abbr': getattr(self, '_last_state_abbrs', {}).get(row),
+            }
+        return current_data
+
+    def _init_tracking_dicts(self):
+        """Initialize tracking dicts if not present"""
+        for attr in ['_last_suggested_colors', '_last_suggested_names', '_last_formulas', '_last_state_abbrs']:
+            if not hasattr(self, attr):
+                setattr(self, attr, {})
+
+    def _build_compound_list(self, compounds, current_data):
+        """Build new compound list preserving existing data"""
+        new_compounds = []
+        seen_new = {}
+        for compound in compounds:
+            clean_formula, detected_state, detected_state_abbr = ChemLabParser.parse_compound(compound)
+            ctype = compound.get('type', '')
+            base_key = (clean_formula, ctype)
+            seen_new[base_key] = seen_new.get(base_key, 0) + 1
+            key = (clean_formula, ctype, seen_new[base_key])
+
+            compound_data = self._create_compound_data(
+                key, current_data, clean_formula, ctype, detected_state, detected_state_abbr
+            )
+            new_compounds.append(compound_data)
+            self._track_suggestions(len(new_compounds) - 1, clean_formula, detected_state_abbr, compound_data)
+        return new_compounds
+
+    def _create_compound_data(self, key, current_data, clean_formula, ctype, detected_state, detected_state_abbr):
+        """Create compound data dict, either from existing or as new"""
+        if key in current_data:
+            return self._build_existing_compound(
+                current_data[key], clean_formula, ctype, detected_state, detected_state_abbr
+            )
+        return self._build_new_compound(clean_formula, ctype, detected_state, detected_state_abbr)
+
+    def _build_existing_compound(self, existing, clean_formula, ctype, detected_state, detected_state_abbr):
+        """Build compound data from existing row data"""
+        prev_formula = existing.get('prev_formula')
+        prev_state = existing.get('prev_state_abbr')
+        context_changed = (prev_formula != clean_formula) or (prev_state != detected_state_abbr)
+
+        current_color = existing['color']
+        prev_suggested_color = existing.get('prev_suggested_color')
+        color_was_suggested = current_color == prev_suggested_color
+
+        current_name = existing['name']
+        prev_suggested_name = existing.get('prev_suggested_name')
+        name_was_suggested = current_name == prev_suggested_name
+
+        suggested_color = self._get_suggestion_or_preserve(
+            context_changed, color_was_suggested, clean_formula, detected_state_abbr,
+            current_color, is_color=True
+        )
+        suggested_name = self._get_suggestion_or_preserve(
+            context_changed, name_was_suggested, clean_formula, detected_state_abbr,
+            current_name, is_color=False
+        )
+
+        return {
+            'formula': clean_formula,
+            'type': ctype,
+            'name': suggested_name,
+            'color': suggested_color,
+            'state': detected_state if detected_state else existing['state'],
+            'notes': existing['notes'],
+        }
+
+    def _build_new_compound(self, clean_formula, ctype, detected_state, detected_state_abbr):
+        """Build compound data for a new compound"""
+        return {
+            'formula': clean_formula,
+            'type': ctype,
+            'name': self._get_suggested_name(clean_formula) or '',
+            'color': self._get_suggested_color(clean_formula, detected_state_abbr),
+            'state': detected_state,
+            'notes': '',
+        }
+
+    def _get_suggestion_or_preserve(self, context_changed, was_suggested, clean_formula,
+                                     detected_state_abbr, current_value, is_color):
+        """Get new suggestion if context changed and value was auto-suggested, else preserve"""
+        if context_changed and was_suggested:
+            log_msg = "[PREVIEW COLOR]" if is_color else "[PREVIEW NAME]"
+            logging.info(f"{log_msg} Context changed for {clean_formula}, re-querying learner")
+            if is_color:
+                return self._get_suggested_color(clean_formula, detected_state_abbr)
+            return self._get_suggested_name(clean_formula) or ''
+        return current_value
+
+    def _track_suggestions(self, row_idx, clean_formula, detected_state_abbr, compound_data):
+        """Track what we're suggesting for this row"""
+        self._last_suggested_colors[row_idx] = compound_data['color']
+        self._last_suggested_names[row_idx] = compound_data['name']
+        self._last_formulas[row_idx] = clean_formula
+        self._last_state_abbrs[row_idx] = detected_state_abbr
+    
     def _update_table_incremental(self, new_compounds):
-        """Update table incrementally - add new rows only, preserve existing"""
-        # Count how many rows we need
+        """Update table - create rows and fill empty cells with suggestions."""
         current_rows = self.compounds_table.rowCount()
         needed_rows = len(new_compounds)
-        
-        # Add new rows if needed
+
         if needed_rows > current_rows:
             self.compounds_table.setRowCount(needed_rows)
-        
-        # Update or add formula/type for each row
+
         for row, compound in enumerate(new_compounds):
-            formula_item = self.compounds_table.item(row, 0)
-            
-            # If this row doesn't have a formula item, create one
-            if not formula_item:
-                formula_item = QTableWidgetItem(self._display_formula(compound['formula']))
-                formula_item.setFlags(formula_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.compounds_table.setItem(row, 0, formula_item)
-                
-                type_item = QTableWidgetItem(compound['type'])
-                type_item.setFlags(type_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.compounds_table.setItem(row, 1, type_item)
-                
-                # Set defaults for editable columns
-                state_value = compound.get('state', '')
-                display_state = STATE_NAMES.get(state_value, state_value)
-                self.compounds_table.setItem(row, 2, QTableWidgetItem(compound.get('name', '')))
-                self.compounds_table.setItem(row, 3, QTableWidgetItem(compound.get('color', DEFAULT_COLOR)))
-                self.compounds_table.setItem(row, 4, QTableWidgetItem(display_state))
-                self.compounds_table.setItem(row, 5, QTableWidgetItem(compound.get('notes', '')))
-            else:
-                # Update display formula
-                formula_item.setText(self._display_formula(compound['formula']))
-                # Also update type and state in case they changed
-                type_item = self.compounds_table.item(row, 1)
-                if type_item:
-                    type_item.setText(compound['type'])
-                state_value = compound.get('state', '')
-                display_state = STATE_NAMES.get(state_value, state_value)
-                state_item = self.compounds_table.item(row, 4)
-                if state_item:
-                    state_item.setText(display_state)
+            self._update_formula_cell(row, compound['formula'])
+            self._update_type_cell(row, compound['type'])
+            self._update_state_cell(row, compound.get('state', ''))
+            self._update_notes_cell(row, compound.get('notes', ''))
+            self._update_name_cell(row, compound.get('name', ''))
+            self._update_color_cell(row, compound.get('color', ''))
+
+    def _get_or_create_item(self, row, col, text, editable=False):
+        """Get existing item or create new one. Returns the item."""
+        item = self.compounds_table.item(row, col)
+        if not item:
+            item = QTableWidgetItem(text)
+            if not editable:
+                item.setFlags(item.flags() & ~Qt.ItemFlag(Qt.ItemFlag.ItemIsEditable))
+            self.compounds_table.setItem(row, col, item)
+        else:
+            item.setText(text)
+        return item
+
+    def _update_formula_cell(self, row, formula):
+        """Update formula cell (column 0) - not editable."""
+        self._get_or_create_item(row, 0, ChemLabParser.display_formula(formula), editable=False)
+
+    def _update_type_cell(self, row, comp_type):
+        """Update type cell (column 1) - not editable."""
+        self._get_or_create_item(row, 1, comp_type, editable=False)
+
+    def _update_state_cell(self, row, state_value):
+        """Update state cell (column 4)."""
+        display_state = STATE_NAMES.get(state_value, state_value)
+        self._get_or_create_item(row, 4, display_state)
+
+    def _update_notes_cell(self, row, notes):
+        """Update notes cell (column 5) - only if empty."""
+        if not self.compounds_table.item(row, 5):
+            self.compounds_table.setItem(row, 5, QTableWidgetItem(notes))
+
+    def _update_name_cell(self, row, suggested_name):
+        """Update name cell (column 2) - fill only if empty."""
+        name_item = self.compounds_table.item(row, 2)
+        if not name_item:
+            self.compounds_table.setItem(row, 2, QTableWidgetItem(suggested_name))
+        elif not name_item.text().strip() and suggested_name:
+            name_item.setText(suggested_name)
+
+    @staticmethod
+    def _should_update_color(color_item, suggested_color):
+        """Check if color cell should be updated."""
+        if not suggested_color:
+            return False
+        if not color_item:
+            return True
+        current = color_item.text().strip().lower()
+        return current == '' or current == DEFAULT_COLOR
+
+    def _update_color_cell(self, row, suggested_color):
+        """Update color cell (column 3) - fill only if empty or default."""
+        color_item = self.compounds_table.item(row, 3)
+        current_color = color_item.text() if color_item else "(empty)"
+        logging.info(f"[PREVIEW COLOR] Row {row}: current={current_color!r}, suggested={suggested_color!r}")
+        if not self._should_update_color(color_item, suggested_color):
+            logging.info(f"[PREVIEW COLOR] Row {row}: Skipping update (should_update=False)")
+            return
+        logging.info(f"[PREVIEW COLOR] Row {row}: Updating color to {suggested_color!r}")
+        if not color_item:
+            self.compounds_table.setItem(row, 3, QTableWidgetItem(suggested_color))
+        else:
+            color_item.setText(suggested_color)
     
     def _get_cell_text(self, row, col):
         """Get text from table cell, return empty string if None"""
@@ -683,15 +894,15 @@ class ChemLab(QMainWindow):
     def _create_compound_row(self, row, compound, view_mode):
         """Create a single compound row in the table"""
         # Formula (not editable) - display with subscripts
-        formula_display = self._display_formula(compound['formula'])
+        formula_display = ChemLabParser.display_formula(compound['formula'])
         formula_item = QTableWidgetItem(formula_display)
-        formula_item.setFlags(formula_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        formula_item.setFlags(formula_item.flags() & ~Qt.ItemFlag(Qt.ItemFlag.ItemIsEditable))
         formula_item.setData(Qt.ItemDataRole.UserRole, compound['id'])
         self.compounds_table.setItem(row, 0, formula_item)
         
         # Type (not editable)
         type_item = QTableWidgetItem(compound['type'])
-        type_item.setFlags(type_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        type_item.setFlags(type_item.flags() & ~Qt.ItemFlag(Qt.ItemFlag.ItemIsEditable))
         self.compounds_table.setItem(row, 1, type_item)
         
         # Editable fields
@@ -701,7 +912,7 @@ class ChemLab(QMainWindow):
         color_value = compound.get('color') or DEFAULT_COLOR
         self.compounds_table.setItem(row, 3, QTableWidgetItem(color_value))
         
-        state_display = self._get_state_display(compound)
+        state_display = ChemLabParser.get_state_display(compound)
         self.compounds_table.setItem(row, 4, QTableWidgetItem(state_display))
         
         notes_value = compound.get('notes') or ''
@@ -709,12 +920,6 @@ class ChemLab(QMainWindow):
         
         if view_mode:
             self._make_row_readonly(row)
-
-    @staticmethod
-    def _get_state_display(compound):
-        """Get display state name from compound data"""
-        state_value = compound.get('state') or ''
-        return STATE_NAMES.get(state_value, state_value)
 
     def _train_compound_learner(self):
         """Load all compounds from database to train the learner"""
@@ -732,62 +937,37 @@ class ChemLab(QMainWindow):
 
     def _get_suggested_color(self, formula, state):
         """Get suggested color for a compound based on formula and state"""
-        return self.compound_learner.get_color(formula, state)
+        logging.info(f"[PREVIEW COLOR] Getting suggested color for formula={formula!r}, state={state!r}")
+        color = self.compound_learner.get_color(formula, state)
+        logging.info(f"[PREVIEW COLOR] Learner returned color={color!r}")
+        return color
 
     def _make_row_readonly(self, row):
         """Make all cells in a row readonly"""
         for col in range(6):
             item = self.compounds_table.item(row, col)
             if item:
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                item.setFlags(item.flags() & ~Qt.ItemFlag(Qt.ItemFlag.ItemIsEditable))
 
     def _load_and_display_elements(self, compounds):
         """Extract elements from compounds and display them"""
-        reaction_elements = self._extract_elements_from_compounds(compounds)
-        elements_data = self._load_elements_data(reaction_elements)
+        reaction_elements = ChemLabParser.extract_elements_from_compounds(compounds)
+        elements_data = ChemLabParser.load_elements_data(reaction_elements)
         self.update_elements_table_preview(elements_data)
 
-    @staticmethod
-    def _extract_elements_from_compounds(compounds):
-        """Extract unique element symbols from compound formulas"""
-        reaction_elements = set()
-        for compound in compounds:
-            formula = (compound.get('formula') or '').translate(SUBSCRIPT_MAP)
-            formula = re.sub(STATE_SYMBOL_PATTERN, '', formula)
-            matches = re.findall(r'[A-Z][a-z]?', formula)
-            for match in matches:
-                reaction_elements.add(match)
-        return reaction_elements
-
-    def _load_elements_data(self, reaction_elements):
-        """Load element data from mendeleev for given symbols"""
-        elements_data = {}
-        for elem_symbol in reaction_elements:
-            elements_data[elem_symbol] = self._get_element_info(elem_symbol)
-        return elements_data
-
-    @staticmethod
-    def _get_element_info(elem_symbol):
-        """Get element info from mendeleev, return default if not found"""
-        try:
-            elem = element(elem_symbol)
-            return {'name': elem.name, 'atomic_number': elem.atomic_number}
-        except Exception:
-            return {'name': 'Unknown', 'atomic_number': 0}
-    
     def update_compounds_table_preview(self, compounds):
         """Update compounds table for preview"""
         self.compounds_table.setRowCount(len(compounds))
         
         for row, compound in enumerate(compounds):
             # Formula (not editable) - display with subscripts
-            formula_item = QTableWidgetItem(self._display_formula(compound['formula']))
-            formula_item.setFlags(formula_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            formula_item = QTableWidgetItem(ChemLabParser.display_formula(compound['formula']))
+            formula_item.setFlags(formula_item.flags() & ~Qt.ItemFlag(Qt.ItemFlag.ItemIsEditable))
             self.compounds_table.setItem(row, 0, formula_item)
             
             # Type (not editable)
             type_item = QTableWidgetItem(compound['type'])
-            type_item.setFlags(type_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            type_item.setFlags(type_item.flags() & ~Qt.ItemFlag(Qt.ItemFlag.ItemIsEditable))
             self.compounds_table.setItem(row, 1, type_item)
             
             # Editable fields
@@ -812,19 +992,29 @@ class ChemLab(QMainWindow):
         
         # Collect user-entered compound data from table
         compounds_data = {}
+        logging.info(f"DEBUG: Collecting from {self.compounds_table.rowCount()} table rows")
         for row in range(self.compounds_table.rowCount()):
             formula_item = self.compounds_table.item(row, 0)
             if not formula_item:
+                logging.info(f"DEBUG: Row {row} - no formula item, skipping")
                 continue
-            clean_formula = ChemLabParser.extract_state_symbol(formula_item.text())[1]
+            # Normalize formula to ASCII to match worker lookup keys
+            clean_formula = ChemLabParser.normalize_formula(formula_item.text())
             comp_type = self.compounds_table.item(row, 1)
             if comp_type:
                 key = (clean_formula, comp_type.text())
+                name = self._get_table_text(row, 2)
+                color = self._get_table_text(row, 3)
+                notes = self._get_table_text(row, 5)
                 compounds_data[key] = {
-                    'name': self._get_table_text(row, 2),
-                    'color': self._get_table_text(row, 3),
-                    'notes': self._get_table_text(row, 5)
+                    'name': name,
+                    'color': color,
+                    'notes': notes
                 }
+                logging.info(f"DEBUG: Row {row} - key={key}, name={name!r}, color={color!r}")
+            else:
+                logging.info(f"DEBUG: Row {row} - no type item, skipping")
+        logging.info(f"DEBUG: Final compounds_data keys: {list(compounds_data.keys())}")
         
         # Create and start worker thread
         self._worker = SaveReactionWorker(
@@ -914,7 +1104,8 @@ class ChemLab(QMainWindow):
                 if rtype:
                     try:
                         action = self.filter_menu.addAction(rtype)
-                        action.triggered.connect(lambda checked=False, t=rtype: self._safe_apply_filter(t))
+                        if action:
+                            action.triggered.connect(lambda checked=False, t=rtype: self._safe_apply_filter(t))
                     except Exception as e:
                         logging.error(f"Failed to add filter action for {rtype}: {e}")
         except Exception as e:
@@ -958,9 +1149,13 @@ class ChemLab(QMainWindow):
         """View the selected reaction in an overlay widget"""
         selected_row = self.reactions_table.currentRow()
         if selected_row >= 0:
-            reaction_id = self.reactions_table.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
-            reaction_text = self.reactions_table.item(selected_row, 0).text()
-            reaction_type = self.reactions_table.item(selected_row, 1).text()
+            item = self.reactions_table.item(selected_row, 0)
+            type_item = self.reactions_table.item(selected_row, 1)
+            if not item or not type_item:
+                return
+            reaction_id = item.data(Qt.ItemDataRole.UserRole)
+            reaction_text = item.text()
+            reaction_type = type_item.text()
             
             # Store the viewing state
             self.viewing_reaction_id = reaction_id
@@ -971,9 +1166,13 @@ class ChemLab(QMainWindow):
     def edit_selected_reaction(self):
         selected_row = self.reactions_table.currentRow()
         if selected_row >= 0:
-            reaction_id = self.reactions_table.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
-            reaction_text = self.reactions_table.item(selected_row, 0).text()
-            reaction_type = self.reactions_table.item(selected_row, 1).text()
+            item = self.reactions_table.item(selected_row, 0)
+            type_item = self.reactions_table.item(selected_row, 1)
+            if not item or not type_item:
+                return
+            reaction_id = item.data(Qt.ItemDataRole.UserRole)
+            reaction_text = item.text()
+            reaction_type = type_item.text()
 
             # Close any view overlay if open
             self.close_view_overlay()
@@ -1003,8 +1202,11 @@ class ChemLab(QMainWindow):
         """Delete the selected reaction"""
         selected_row = self.reactions_table.currentRow()
         if selected_row >= 0:
-            reaction_id = self.reactions_table.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
-            reaction_text = self.reactions_table.item(selected_row, 0).text()
+            item = self.reactions_table.item(selected_row, 0)
+            if not item:
+                return
+            reaction_id = item.data(Qt.ItemDataRole.UserRole)
+            reaction_text = item.text()
             
             reply = QMessageBox.question(
                 self, 
@@ -1052,6 +1254,13 @@ class ChemLab(QMainWindow):
         self.elements_table.setRowCount(0)
         self.compounds_table.setRowCount(0)
         self.current_reaction_id = None
+
+        # Clear suggestion tracking dictionaries to avoid stale data
+        self._last_suggested_colors = {}
+        self._last_suggested_names = {}
+        self._last_formulas = {}
+        self._last_state_abbrs = {}
+
         # Clear selection in reactions table and disable buttons
         self.reactions_table.clearSelection()
         self.view_reaction_btn.setEnabled(False)
@@ -1137,14 +1346,14 @@ class ChemLab(QMainWindow):
         self.reactions_table.setRowCount(len(page_items))
         for row, reaction in enumerate(page_items):
             # Reaction text - convert keyboard arrows to Unicode
-            reaction_item = QTableWidgetItem(self._convert_arrows_to_unicode(reaction['reaction_text']))
-            reaction_item.setFlags(reaction_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            reaction_item = QTableWidgetItem(ChemLabParser.convert_arrows_to_unicode(reaction['reaction_text']))
+            reaction_item.setFlags(reaction_item.flags() & ~Qt.ItemFlag(Qt.ItemFlag.ItemIsEditable))
             reaction_item.setData(Qt.ItemDataRole.UserRole, reaction['id'])  # Store ID
             self.reactions_table.setItem(row, 0, reaction_item)
             
             # Reaction type
             type_item = QTableWidgetItem(reaction.get('reaction_type', 'Unknown'))
-            type_item.setFlags(type_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            type_item.setFlags(type_item.flags() & ~Qt.ItemFlag(Qt.ItemFlag.ItemIsEditable))
             self.reactions_table.setItem(row, 1, type_item)
         
         # Update pagination controls
@@ -1156,7 +1365,6 @@ class ChemLab(QMainWindow):
         self.last_page_btn.setEnabled(self.current_page < total_pages)
         
         # Update page entry validator
-        from PyQt6.QtGui import QIntValidator
         self.page_entry.setValidator(QIntValidator(1, max(1, total_pages), self))
     
     def go_to_first_page(self):
@@ -1246,13 +1454,13 @@ class ChemLab(QMainWindow):
         for row, compound in enumerate(compounds):
             # Formula (not editable)
             formula_item = QTableWidgetItem(compound['formula'])
-            formula_item.setFlags(formula_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            formula_item.setFlags(formula_item.flags() & ~Qt.ItemFlag(Qt.ItemFlag.ItemIsEditable))
             formula_item.setData(Qt.ItemDataRole.UserRole, compound['id'])  # Store ID for updates
             self.compounds_table.setItem(row, 0, formula_item)
             
             # Type (not editable)
             type_item = QTableWidgetItem(compound['type'])
-            type_item.setFlags(type_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            type_item.setFlags(type_item.flags() & ~Qt.ItemFlag(Qt.ItemFlag.ItemIsEditable))
             self.compounds_table.setItem(row, 1, type_item)
             
             # Editable fields
@@ -1272,7 +1480,6 @@ class ChemLab(QMainWindow):
         """Create a backup of the database"""
         try:
             backup_name = f"chemlab_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-            import shutil
             shutil.copy2("chemlab_data.db", backup_name)
             
             QMessageBox.information(self, "Backup Successful", f"Database backed up to {backup_name}")
@@ -1280,7 +1487,6 @@ class ChemLab(QMainWindow):
         except Exception as e:
             logging.error(f"Failed to backup database: {e}")
             QMessageBox.critical(self, "Backup Failed", f"Failed to backup database: {e}")
-    
 
     
     def closeEvent(self, event):
@@ -1364,7 +1570,7 @@ class ChemLab(QMainWindow):
         
         # Title
         title = QLabel("Viewing Reaction")
-        title.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        title.setFont(QFont(FONT, 16, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("color: #ffffff; padding: 10px;")
         overlay_layout.addWidget(title)
@@ -1374,16 +1580,16 @@ class ChemLab(QMainWindow):
         info_layout = QGridLayout()
         info_layout.setSpacing(10)
         
-        reaction_label = QLabel(f"<b>Reaction:</b> {self._convert_arrows_to_unicode(reaction_text)}")
+        reaction_label = QLabel(f"<b>Reaction:</b> {ChemLabParser.convert_arrows_to_unicode(reaction_text)}")
         reaction_label.setWordWrap(True)
-        reaction_label.setFont(QFont("Arial", 12))
-        reaction_label.setStyleSheet("color: #ffffff;")
+        reaction_label.setFont(QFont(FONT, 12))
+        reaction_label.setStyleSheet(COLOR_STYLE)
         reaction_label.setTextFormat(Qt.TextFormat.RichText)
         info_layout.addWidget(reaction_label, 0, 0, 1, 2)
         
         type_label = QLabel(f"<b>Type:</b> {reaction_type}")
-        type_label.setFont(QFont("Arial", 11))
-        type_label.setStyleSheet("color: #ffffff;")
+        type_label.setFont(QFont(FONT, 11))
+        type_label.setStyleSheet(COLOR_STYLE)
         info_layout.addWidget(type_label, 1, 0)
         
         info_group.setLayout(info_layout)
@@ -1400,7 +1606,9 @@ class ChemLab(QMainWindow):
         elements_table = QTableWidget()
         elements_table.setColumnCount(3)
         elements_table.setHorizontalHeaderLabels(ELEMENTS_COLUMNS)
-        elements_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header = elements_table.horizontalHeader()
+        if header:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         elements_table.setAlternatingRowColors(True)
         elements_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         elements_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -1415,7 +1623,9 @@ class ChemLab(QMainWindow):
         compounds_table = QTableWidget()
         compounds_table.setColumnCount(6)
         compounds_table.setHorizontalHeaderLabels(COMPOUNDS_COLUMNS)
-        compounds_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header = compounds_table.horizontalHeader()
+        if header:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         compounds_table.setAlternatingRowColors(True)
         compounds_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         compounds_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -1451,6 +1661,9 @@ class ChemLab(QMainWindow):
         # Load data into overlay tables
         self.load_overlay_data(reaction_id, elements_table, compounds_table)
         
+        # Connect compound click handler
+        compounds_table.cellClicked.connect(lambda row, col: self.on_compound_clicked(row, compounds_table))
+        
         # Show overlay
         self.view_overlay.raise_()
         self.view_overlay.show()
@@ -1470,7 +1683,7 @@ class ChemLab(QMainWindow):
             
             for row, compound in enumerate(compounds):
                 # Formula - display with subscripts
-                formula_item = QTableWidgetItem(self._display_formula(compound['formula']))
+                formula_item = QTableWidgetItem(ChemLabParser.display_formula(compound['formula']))
                 compounds_table.setItem(row, 0, formula_item)
                 
                 # Type
@@ -1509,7 +1722,7 @@ class ChemLab(QMainWindow):
                     elements_table.setItem(row, 0, QTableWidgetItem(elem_symbol))
                     elements_table.setItem(row, 1, QTableWidgetItem(elem.name))
                     elements_table.setItem(row, 2, QTableWidgetItem(str(elem.atomic_number)))
-                except Exception:
+                except (ValueError, KeyError):
                     elements_table.setItem(row, 0, QTableWidgetItem(elem_symbol))
                     elements_table.setItem(row, 1, QTableWidgetItem('Unknown'))
                     elements_table.setItem(row, 2, QTableWidgetItem('0'))
@@ -1535,14 +1748,271 @@ class ChemLab(QMainWindow):
                 self.view_overlay.setGeometry(self.central_widget.rect())
         return super().eventFilter(obj, event)
     
+    def on_compound_clicked(self, row, compounds_table):
+        """Handle compound click in view overlay - show compound stats"""
+        try:
+            # Get compound data from the clicked row
+            formula_item = compounds_table.item(row, 0)
+            if not formula_item:
+                return
+            formula_text = formula_item.text()
+            # Convert displayed formula back to plain text for parsing
+            formula = ChemLabParser.normalize_formula(formula_text)
+            
+            type_item = compounds_table.item(row, 1)
+            name_item = compounds_table.item(row, 2)
+            color_item = compounds_table.item(row, 3)
+            state_item = compounds_table.item(row, 4)
+            notes_item = compounds_table.item(row, 5)
+            
+            compound_type = type_item.text() if type_item else ''
+            compound_name = name_item.text() if name_item else ''
+            compound_color = color_item.text() if color_item else DEFAULT_COLOR
+            compound_state = state_item.text() if state_item else ''
+            compound_notes = notes_item.text() if notes_item else ''
+            
+            # Convert state display name back to abbreviation if needed
+            for abbrev, full_name in STATE_NAMES.items():
+                if full_name == compound_state:
+                    compound_state = abbrev
+                    break
+            
+            # Show compound stats overlay
+            self.create_compound_overlay(formula, compound_name, compound_type, 
+                                         compound_color, compound_state, compound_notes)
+            
+        except Exception as e:
+            logging.error(f"Error handling compound click: {e}")
+    
     def on_view_back_clicked(self):
         """Handle back button click in view mode"""
         self.close_view_overlay()
-        self.reset_form_to_normal()
         self.reactions_table.clearSelection()
         self.view_reaction_btn.setEnabled(False)
         self.edit_reaction_btn.setEnabled(False)
         self.delete_reaction_btn.setEnabled(False)
+    
+    def create_compound_overlay(self, formula, compound_name, compound_type, compound_color, compound_state, compound_notes):
+        """Create and show compound stats overlay"""
+        self.close_compound_overlay()
+        self.compound_overlay_parent = 'view'
+
+        self.compound_overlay = QFrame(self.central_widget)
+        self.compound_overlay.setObjectName("compoundOverlay")
+        self._apply_compound_overlay_styles()
+        self.compound_overlay.setGeometry(self.central_widget.rect())
+
+        overlay_layout = QVBoxLayout(self.compound_overlay)
+        overlay_layout.setContentsMargins(30, 30, 30, 30)
+
+        title = QLabel(f"Compound Statistics: {ChemLabParser.display_formula(formula)}")
+        title.setFont(QFont(FONT, 18, QFont.Weight.Bold))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("color: #ffffff; padding: 15px;")
+        overlay_layout.addWidget(title)
+
+        info_group = self._create_basic_info_group(formula, compound_name, compound_type, compound_color, compound_state, compound_notes)
+        overlay_layout.addWidget(info_group)
+
+        self._add_molar_mass_section(overlay_layout, formula)
+        self._add_back_button(overlay_layout)
+
+        self.compound_overlay.raise_()
+        self.compound_overlay.show()
+
+    def _apply_compound_overlay_styles(self):
+        """Apply stylesheet to compound overlay"""
+        self.compound_overlay.setStyleSheet("""
+            QFrame#compoundOverlay {
+                background-color: #1a1a1a;
+                border: none;
+            }
+            QFrame#compoundOverlay QLabel {
+                color: #ffffff;
+            }
+            QFrame#compoundOverlay QGroupBox {
+                background-color: #2d2d2d;
+                border: 1px solid #444444;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+                color: #ffffff;
+                font-weight: bold;
+            }
+            QFrame#compoundOverlay QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+                color: #ffffff;
+            }
+            QFrame#compoundOverlay QTableWidget {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                gridline-color: #444444;
+                border: 1px solid #444444;
+            }
+            QFrame#compoundOverlay QTableWidget::item {
+                padding: 5px;
+                color: #ffffff;
+            }
+            QFrame#compoundOverlay QTableWidget::item:alternate {
+                background-color: #353535;
+            }
+            QFrame#compoundOverlay QHeaderView::section {
+                background-color: #3d3d3d;
+                color: #ffffff;
+                padding: 5px;
+                border: 1px solid #444444;
+                font-weight: bold;
+            }
+            QFrame#compoundOverlay QPushButton {
+                background-color: #0078d4;
+                color: white;
+                border-radius: 5px;
+                font-weight: bold;
+                padding: 10px 20px;
+            }
+            QFrame#compoundOverlay QPushButton:hover {
+                background-color: #106ebe;
+            }
+        """)
+
+    @staticmethod
+    def _create_basic_info_group(formula, compound_name, compound_type, compound_color, compound_state, compound_notes):
+        """Create basic information group box"""
+        info_group = QGroupBox("Basic Information")
+        info_layout = QGridLayout()
+        info_layout.setSpacing(10)
+
+        formula_label = QLabel(f"<b>Formula:</b> {ChemLabParser.display_formula(formula)}")
+        formula_label.setFont(QFont(FONT, 12))
+        formula_label.setStyleSheet(COLOR_STYLE)
+        info_layout.addWidget(formula_label, 0, 0)
+
+        type_label = QLabel(f"<b>Type:</b> {compound_type}")
+        type_label.setFont(QFont(FONT, 12))
+        type_label.setStyleSheet(COLOR_STYLE)
+        info_layout.addWidget(type_label, 0, 1)
+
+        name_label = QLabel(f"<b>Name:</b> {compound_name or 'Not specified'}")
+        name_label.setFont(QFont(FONT, 12))
+        name_label.setStyleSheet(COLOR_STYLE)
+        info_layout.addWidget(name_label, 1, 0)
+
+        color_label = QLabel(f"<b>Color:</b> {compound_color or DEFAULT_COLOR}")
+        color_label.setFont(QFont(FONT, 12))
+        color_label.setStyleSheet(COLOR_STYLE)
+        info_layout.addWidget(color_label, 1, 1)
+
+        state_display = STATE_NAMES.get(compound_state, compound_state) or 'Not specified'
+        state_label = QLabel(f"<b>State:</b> {state_display}")
+        state_label.setFont(QFont(FONT, 12))
+        state_label.setStyleSheet(COLOR_STYLE)
+        info_layout.addWidget(state_label, 2, 0)
+
+        if compound_notes:
+            notes_label = QLabel(f"<b>Notes:</b> {compound_notes}")
+            notes_label.setFont(QFont(FONT, 11))
+            notes_label.setStyleSheet(COLOR_STYLE)
+            notes_label.setWordWrap(True)
+            info_layout.addWidget(notes_label, 3, 0, 1, 2)
+
+        info_group.setLayout(info_layout)
+        return info_group
+
+    def _add_molar_mass_section(self, overlay_layout, formula):
+        """Add molar mass and composition section to overlay"""
+        molar_mass = ChemLabParser.calculate_molar_mass(formula)
+        composition, _ = ChemLabParser.calculate_elemental_composition(formula)
+
+        if not molar_mass:
+            error_label = QLabel("Could not calculate molar mass. Invalid formula or unknown elements.")
+            error_label.setStyleSheet("color: #ff6b6b; padding: 20px;")
+            overlay_layout.addWidget(error_label)
+            return
+
+        mass_group = QGroupBox("Molar Mass")
+        mass_layout = QVBoxLayout()
+
+        mass_label = QLabel(f"<b>{molar_mass} g/mol</b>")
+        mass_label.setFont(QFont(FONT, 14))
+        mass_label.setStyleSheet("color: #00d4aa;")
+        mass_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mass_layout.addWidget(mass_label)
+
+        mass_group.setLayout(mass_layout)
+        overlay_layout.addWidget(mass_group)
+
+        if composition:
+            self._add_composition_table(overlay_layout, composition)
+
+    @staticmethod
+    def _add_composition_table(overlay_layout, composition):
+        """Add elemental composition table to overlay"""
+        comp_group = QGroupBox("Elemental Composition")
+        comp_layout = QVBoxLayout()
+
+        comp_table = QTableWidget()
+        comp_table.setColumnCount(4)
+        comp_table.setHorizontalHeaderLabels(["Element", "Count", "Mass (g/mol)", "% by Mass"])
+        header = comp_table.horizontalHeader()
+        if header:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        comp_table.setAlternatingRowColors(True)
+        comp_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        comp_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+
+        comp_table.setRowCount(len(composition))
+        for row, (elem, data) in enumerate(sorted(composition.items())):
+            comp_table.setItem(row, 0, QTableWidgetItem(elem))
+            comp_table.setItem(row, 1, QTableWidgetItem(str(data['count'])))
+            comp_table.setItem(row, 2, QTableWidgetItem(str(data['mass'])))
+            comp_table.setItem(row, 3, QTableWidgetItem(f"{data['percentage']}%"))
+
+        comp_layout.addWidget(comp_table)
+        comp_group.setLayout(comp_layout)
+        overlay_layout.addWidget(comp_group, 1)
+
+    def _add_back_button(self, overlay_layout):
+        """Add back button to overlay layout"""
+        back_layout = QHBoxLayout()
+        back_layout.addStretch()
+        back_btn = QPushButton("← Back")
+        back_btn.setMinimumHeight(45)
+        back_btn.setMinimumWidth(150)
+        back_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 14px;
+                padding: 10px 20px;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+        """)
+        back_btn.clicked.connect(self.on_compound_back_clicked)
+        back_layout.addWidget(back_btn)
+        overlay_layout.addLayout(back_layout)
+    
+    def close_compound_overlay(self):
+        """Close compound overlay"""
+        if self.compound_overlay:
+            self.compound_overlay.close()
+            self.compound_overlay.deleteLater()
+            self.compound_overlay = None
+        self.compound_overlay_parent = None
+    
+    def on_compound_back_clicked(self):
+        """Handle back button in compound overlay"""
+        self.close_compound_overlay()
+        # If we came from view overlay, it should still be visible underneath
+        # Just make sure it gets focus again
+        if self.view_overlay:
+            self.view_overlay.raise_()
+            self.view_overlay.setFocus()
 
 def main():
     app = QApplication(sys.argv)

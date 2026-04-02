@@ -1,6 +1,8 @@
 """CompoundLearner - Learns compound names and colors from database history."""
+import logging
+import re
 from typing import Dict, List, Optional, Tuple
-from collections import defaultdict
+from constants import DEFAULT_COLOR, SUBSCRIPT_MAP
 
 
 class CompoundLearner:
@@ -17,18 +19,15 @@ class CompoundLearner:
         - Falls back to default color if no data
     """
 
-    def __init__(self, default_color: str = 'Unknown'):
+    def __init__(self):
         """
         Initialize the learner.
-        
-        Args:
-            default_color: Fallback color when no historical data exists
         """
-        self.default_color = default_color
+        self.default_color = DEFAULT_COLOR
         # name_stats[formula] -> {name: count}
-        self.name_stats: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self.name_stats: Dict[str, Dict[str, int]] = {}
         # color_stats[(formula, state)] -> {color: count}
-        self.color_stats: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self.color_stats: Dict[Tuple[str, str], Dict[str, int]] = {}
 
     def learn(self, compounds: List[dict]) -> None:
         """
@@ -38,11 +37,13 @@ class CompoundLearner:
             compounds: List of compound dictionaries with keys:
                 - 'formula': str (e.g., 'HCl', 'NaCl')
                 - 'state': str (e.g., 'aq', 'l', 's', 'g' or '')
-                - 'name': str (may be empty)
-                - 'color': str (may be empty)
+                - 'name': str (maybe empty)
+                - 'color': str (maybe empty)
         """
         for compound in compounds:
             formula = compound.get('formula', '').strip()
+            formula = re.sub(r'^\d+','', formula)
+            formula.translate(SUBSCRIPT_MAP)
             state = compound.get('state', '').strip()
             name = compound.get('name', '').strip()
             color = compound.get('color', '').strip()
@@ -56,7 +57,10 @@ class CompoundLearner:
 
             # Learn color (state-aware) - only if color is non-empty and state exists
             if color and state:
+                logging.info(f"[LEARNER] Learning color: formula={formula!r}, state={state!r}, color={color!r}")
                 self._increment_color(formula, state, color)
+            elif color and not state:
+                logging.info(f"[LEARNER] Skipping color learning (no state): formula={formula!r}, color={color!r}")
 
     def get_name(self, formula: str) -> Optional[str]:
         """
@@ -69,15 +73,18 @@ class CompoundLearner:
             Most common name or None if no data
         """
         formula = formula.strip()
+        
         if formula not in self.name_stats:
             return None
 
-        # Get the name with highest frequency
+        # Get the name with the highest frequency
         name_counts = self.name_stats[formula]
+        
         if not name_counts:
             return None
 
-        return max(name_counts.items(), key=lambda x: x[1])[0]
+        result = max(name_counts.items(), key=lambda x: x[1])[0]
+        return result
 
     def get_color(self, formula: str, state: str = '') -> str:
         """
@@ -95,11 +102,19 @@ class CompoundLearner:
 
         # Try to get color for specific (formula, state)
         key = (formula, state)
+        logging.info(f"[LEARNER] Looking up color for key={key}")
+        logging.info(f"[LEARNER] color_stats has {len(self.color_stats)} entries")
+        if self.color_stats:
+            logging.info(f"[LEARNER] color_stats keys: {list(self.color_stats.keys())[:10]}")  # Show first 10
+        
         if key in self.color_stats and self.color_stats[key]:
             color_counts = self.color_stats[key]
-            return max(color_counts.items(), key=lambda x: x[1])[0]
+            result = max(color_counts.items(), key=lambda x: x[1])[0]
+            logging.info(f"[LEARNER] Found color stats for key={key}: {color_counts}, returning={result!r}")
+            return result
 
         # If no state-specific color, return default
+        logging.info(f"[LEARNER] No color found for key={key}, returning default={self.default_color!r}")
         return self.default_color
 
     def get_all_name_suggestions(self, formula: str, max_results: int = 3) -> List[Tuple[str, int]]:
@@ -146,7 +161,15 @@ class CompoundLearner:
 
     def has_data(self) -> bool:
         """Check if learner has any data."""
-        return bool(self.name_stats) or bool(self.color_stats)
+        # Check if any formula has name entries
+        for name_dict in self.name_stats.values():
+            if name_dict:
+                return True
+        # Check if any (formula, state) has color entries
+        for color_dict in self.color_stats.values():
+            if color_dict:
+                return True
+        return False
 
     def clear(self) -> None:
         """Clear all learned statistics."""
@@ -158,9 +181,17 @@ class CompoundLearner:
     # --------------------------------------------------
     def _increment_name(self, formula: str, name: str) -> None:
         """Increment frequency count for a (formula, name) pair."""
+        if formula not in self.name_stats:
+            self.name_stats[formula] = {}
+        if name not in self.name_stats[formula]:
+            self.name_stats[formula][name] = 0
         self.name_stats[formula][name] += 1
 
     def _increment_color(self, formula: str, state: str, color: str) -> None:
         """Increment frequency count for a (formula, state, color) triple."""
         key = (formula, state)
+        if key not in self.color_stats:
+            self.color_stats[key] = {}
+        if color not in self.color_stats[key]:
+            self.color_stats[key][color] = 0
         self.color_stats[key][color] += 1

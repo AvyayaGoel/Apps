@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QGroupBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
+from constants import FONT
 
 class ChemicalKeyboard(QWidget):
     # Signal to emit when a symbol is clicked
@@ -20,7 +21,7 @@ class ChemicalKeyboard(QWidget):
         
         # Title
         title = QLabel("Chemical Symbols Keyboard")
-        title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        title.setFont(QFont(FONT, 12, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
         
