@@ -1,10 +1,10 @@
 """Stats dialog for displaying reaction statistics."""
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
 
 
 class StatsDialog(QDialog):
@@ -12,6 +12,8 @@ class StatsDialog(QDialog):
 
     def __init__(self, db, parent=None):
         super().__init__(parent)
+        self.total_label = QLabel("Total Reactions: Loading...")
+        self.types_table = QTableWidget()
         self.db = db
         self.parent_window = parent
         self.setWindowTitle("Reaction Statistics")
@@ -27,7 +29,6 @@ class StatsDialog(QDialog):
         total_group = QGroupBox("Overview")
         total_layout = QVBoxLayout()
 
-        self.total_label = QLabel("Total Reactions: Loading...")
         font = QFont("Segoe UI", 14, QFont.Weight.Bold)
         self.total_label.setFont(font)
         total_layout.addWidget(self.total_label)
@@ -43,7 +44,6 @@ class StatsDialog(QDialog):
         types_layout.addWidget(instruction)
 
         # Table for reaction types
-        self.types_table = QTableWidget()
         self.types_table.setColumnCount(2)
         self.types_table.setHorizontalHeaderLabels(["Reaction Type", "Count"])
         header = self.types_table.horizontalHeader()
@@ -88,7 +88,7 @@ class StatsDialog(QDialog):
             count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.types_table.setItem(row, 1, count_item)
 
-    def on_type_clicked(self, row, column):
+    def on_type_clicked(self, row):
         """Handle click on a reaction type row."""
         # Get the reaction type from the clicked row
         type_item = self.types_table.item(row, 0)
@@ -108,3 +108,9 @@ class StatsDialog(QDialog):
 
             # Close this dialog
             self.close()
+
+    def close(self):
+        """Close the dialog."""
+        super().close()
+        if self.parent_window:
+            self.parent_window.stats_dialog = None

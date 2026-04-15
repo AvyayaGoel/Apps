@@ -3,17 +3,40 @@ SQLite Database Manager for ChemLab Application
 Manages chemical reactions, elements, and compounds storage
 """
 
-import sqlite3
 import logging
-from typing import Dict, List
+import os
+import sqlite3
+from typing import Dict, List, Optional
+
 from constants import DEFAULT_REACTION_TYPE
 
 
 class ChemLabDatabase:
     """Manages SQLite database operations for chemistry data."""
 
-    def __init__(self, db_path: str):
-        self.db_path = db_path
+    @staticmethod
+    def get_default_db_path():
+        """Get the default database path in Local AppData.
+        
+        Creates the ChemLab Data folder if it doesn't exist.
+        """
+        # Get Local AppData path
+        local_appdata = os.environ.get('LOCALAPPDATA')
+        if not local_appdata:
+            # Fallback to user home if env var not set
+            local_appdata = os.path.expanduser('~')
+        
+        # Create ChemLab Data folder
+        chemlab_folder = os.path.join(local_appdata, 'ChemLab Data')
+        os.makedirs(chemlab_folder, exist_ok=True)
+        
+        # Return full db path
+        return os.path.join(chemlab_folder, 'chemlab_data.db')
+
+    def __init__(self):
+        """Initialize the database."""
+        
+        self.db_path = self.get_default_db_path()
         self.connection = None
         self._initialize_database()
 
@@ -22,15 +45,14 @@ class ChemLabDatabase:
         try:
             self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
             self.connection.row_factory = sqlite3.Row  # Enable dict-like access
-            
+
             # Enable foreign key constraints
             cursor = self.connection.cursor()
             cursor.execute("PRAGMA foreign_keys = ON")
             self.connection.commit()
-            
+
             self._create_tables()
             self._create_indexes()
-            logging.info("ChemLab database initialized successfully")
         except Exception as e:
             logging.error(f"Failed to initialize ChemLab database: {e}")
             raise
@@ -45,6 +67,10 @@ class ChemLabDatabase:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 reaction_text TEXT NOT NULL,
                 reaction_type TEXT DEFAULT 'Unknown',
+                heat_value REAL,
+                heat_type TEXT,
+                is_favorite INTEGER DEFAULT 0,
+                favorite_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -76,6 +102,19 @@ class ChemLabDatabase:
             )
         ''')
 
+        # Saved compound names from PubChem
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS saved_compounds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                formula TEXT UNIQUE NOT NULL,
+                common_name TEXT NOT NULL,
+                iupac_name TEXT,
+                cid INTEGER,
+                molecular_weight REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
         self.connection.commit()
 
     def _create_indexes(self):
@@ -86,23 +125,23 @@ class ChemLabDatabase:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_elements_symbol ON elements(symbol)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_compounds_reaction_id ON compounds(reaction_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_compounds_formula ON compounds(formula)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_saved_compounds_formula ON saved_compounds(formula)')
 
         self.connection.commit()
 
-    def add_reaction(self, reaction_text: str, reaction_type: str = 'Unknown') -> int:
+    def add_reaction(self, reaction_text: str, reaction_type: str = 'Unknown', heat_value: float = None, heat_type: str = None) -> int:
         """Add a new reaction to the database."""
         cursor = self.connection.cursor()
 
         try:
             cursor.execute('''
-                INSERT INTO reactions (reaction_text, reaction_type)
-                VALUES (?, ?)
-            ''', (reaction_text, reaction_type))
+                INSERT INTO reactions (reaction_text, reaction_type, heat_value, heat_type)
+                VALUES (?, ?, ?, ?)
+            ''', (reaction_text, reaction_type, heat_value, heat_type))
 
             reaction_id = cursor.lastrowid
             self.connection.commit()
             self.optimize_database()
-            logging.info(f"Added reaction with ID: {reaction_id}")
             return reaction_id
 
         except Exception as e:
@@ -110,12 +149,28 @@ class ChemLabDatabase:
             logging.error(f"Failed to add reaction: {e}")
             raise
 
+    def get_reaction_by_id(self, reaction_id: int) -> Optional[Dict]:
+        """Get a specific reaction by ID."""
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute('SELECT * FROM reactions WHERE id = ?', (reaction_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except Exception as e:
+            logging.error(f"Failed to get reaction by id {reaction_id}: {e}")
+            return None
+
     def get_all_reactions(self) -> List[Dict]:
-        """Get all reactions from the database."""
+        """Get all reactions from the database, favorites first (by favorite_at time)."""
         cursor = self.connection.cursor()
 
         try:
-            cursor.execute('SELECT * FROM reactions ORDER BY id ASC')
+            cursor.execute('''
+                SELECT * FROM reactions
+                ORDER BY is_favorite DESC,
+                         favorite_at ASC,
+                         id ASC
+            ''')
             reaction_rows = cursor.fetchall()
             return [dict(row) for row in reaction_rows]
 
@@ -130,10 +185,9 @@ class ChemLabDatabase:
         try:
             # Delete reaction (CASCADE will automatically delete compounds)
             cursor.execute('DELETE FROM reactions WHERE id = ?', (reaction_id,))
-            
+
             self.connection.commit()
             self.optimize_database()
-            logging.info(f"Deleted reaction with ID: {reaction_id}")
             return True
 
         except Exception as e:
@@ -175,9 +229,9 @@ class ChemLabDatabase:
             logging.error(f"Failed to add/update element {symbol}: {e}")
             raise
 
-    def add_compound(self, reaction_id: int, formula: str, compound_type: str, 
-                    name: str = None, color: str = None, state: str = None, 
-                    notes: str = None) -> int:
+    def add_compound(self, reaction_id: int, formula: str, compound_type: str,
+                     name: str = None, color: str = None, state: str = None,
+                     notes: str = None) -> int:
         """Add a compound to the database."""
         cursor = self.connection.cursor()
 
@@ -190,7 +244,6 @@ class ChemLabDatabase:
             compound_id = cursor.lastrowid
             self.connection.commit()
             self.optimize_database()
-            logging.info(f"Added compound with ID: {compound_id}")
             return compound_id
 
         except Exception as e:
@@ -224,8 +277,8 @@ class ChemLabDatabase:
             logging.error(f"Failed to get all compounds: {e}")
             return []
 
-    def update_compound(self, compound_id: int, name: str = None, color: str = None, 
-                      state: str = None, notes: str = None) -> bool:
+    def update_compound(self, compound_id: int, name: str = None, color: str = None,
+                        state: str = None, notes: str = None) -> bool:
         """Update compound details."""
         cursor = self.connection.cursor()
 
@@ -257,7 +310,6 @@ class ChemLabDatabase:
 
                 self.connection.commit()
                 self.optimize_database()
-                logging.info(f"Updated compound with ID: {compound_id}")
                 return True
 
             return False
@@ -270,21 +322,45 @@ class ChemLabDatabase:
     def delete_compounds_for_reaction(self, reaction_id: int) -> bool:
         """Delete all compounds for a specific reaction"""
         cursor = self.connection.cursor()
-        
+
         try:
             cursor.execute('DELETE FROM compounds WHERE reaction_id = ?', (reaction_id,))
             self.connection.commit()
-            logging.info(f"Deleted compounds for reaction {reaction_id}")
             return True
         except Exception as e:
             self.connection.rollback()
             logging.error(f"Failed to delete compounds for reaction {reaction_id}: {e}")
             return False
 
+    def get_reaction_compounds(self, reaction_id: int) -> List[Dict]:
+        """Get all compounds for a specific reaction"""
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute('''
+                SELECT formula, compound_type, name, state, color
+                FROM compounds
+                WHERE reaction_id = ?
+                ORDER BY id
+            ''', (reaction_id,))
+            rows = cursor.fetchall()
+            return [
+                {
+                    'formula': row[0],
+                    'type': row[1],
+                    'name': row[2] or '',
+                    'state': row[3] or '',
+                    'color': row[4] or ''
+                }
+                for row in rows
+            ]
+        except Exception as e:
+            logging.error(f"Failed to get compounds for reaction {reaction_id}: {e}")
+            return []
+
     def get_all_reaction_types(self) -> List[str]:
         """Get all unique reaction types from database"""
         cursor = self.connection.cursor()
-        
+
         try:
             cursor.execute('''
                 SELECT DISTINCT reaction_type 
@@ -292,10 +368,10 @@ class ChemLabDatabase:
                 WHERE reaction_type != ? 
                 ORDER BY reaction_type
             ''', (DEFAULT_REACTION_TYPE,))
-            
+
             types = [row[0] for row in cursor.fetchall()]
             return types
-            
+
         except Exception as e:
             logging.error(f"Failed to get reaction types: {e}")
             return []
@@ -307,11 +383,11 @@ class ChemLabDatabase:
 
         except Exception as e:
             logging.error(f"Failed to optimize database: {e}")
-    
+
     def get_elements_for_reaction(self, reaction_id: int) -> List[Dict]:
         """Get all elements for a specific reaction"""
         cursor = self.connection.cursor()
-        
+
         try:
             cursor.execute('''
                 SELECT DISTINCT e.symbol, e.name, e.atomic_number
@@ -320,35 +396,85 @@ class ChemLabDatabase:
                 WHERE c.reaction_id = ?
                 ORDER BY e.atomic_number
             ''', (reaction_id,))
-            
+
             element_rows = cursor.fetchall()
             return [dict(row) for row in element_rows]
-            
+
         except Exception as e:
             logging.error(f"Failed to get elements for reaction {reaction_id}: {e}")
             return []
-    
-    def update_reaction(self, reaction_id: int, reaction_text: str, reaction_type: str) -> bool:
+
+    def update_reaction(self, reaction_id: int, reaction_text: str, reaction_type: str, heat_value: float = None, heat_type: str = None) -> bool:
         """Update an existing reaction"""
         cursor = self.connection.cursor()
-        
+
         try:
             cursor.execute('''
                 UPDATE reactions 
-                SET reaction_text = ?, reaction_type = ?
+                SET reaction_text = ?, reaction_type = ?, heat_value = ?, heat_type = ?
                 WHERE id = ?
-            ''', (reaction_text, reaction_type, reaction_id))
-            
+            ''', (reaction_text, reaction_type, heat_value, heat_type, reaction_id))
+
             self.connection.commit()
             self.optimize_database()
-            logging.info(f"Updated reaction with ID: {reaction_id}")
             return True
-            
+
         except Exception as e:
             self.connection.rollback()
             logging.error(f"Failed to update reaction {reaction_id}: {e}")
             return False
 
+    def toggle_reaction_favorite(self, reaction_id: int) -> bool:
+        """Toggle favorite status of a reaction. Returns new favorite status."""
+        cursor = self.connection.cursor()
+
+        try:
+            # Get current status
+            cursor.execute('SELECT is_favorite FROM reactions WHERE id = ?', (reaction_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            current_status = row[0] if row else 0
+            new_status = 0 if current_status else 1
+
+            if new_status:
+                # Setting as favorite - set favorite_at timestamp
+                cursor.execute('''
+                    UPDATE reactions 
+                    SET is_favorite = 1, favorite_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (reaction_id,))
+            else:
+                # Unfavoriting - clear favorite_at
+                cursor.execute('''
+                    UPDATE reactions 
+                    SET is_favorite = 0, favorite_at = NULL
+                    WHERE id = ?
+                ''', (reaction_id,))
+
+            self.connection.commit()
+            return bool(new_status)
+
+        except Exception as e:
+            logging.error(f"Failed to toggle favorite for reaction {reaction_id}: {e}")
+            return False
+
+    def get_reaction_heat_data(self, reaction_id: int) -> dict:
+        """Get heat value and type for a specific reaction."""
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(
+                "SELECT heat_value, heat_type FROM reactions WHERE id = ?",
+                (reaction_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return {'heat_value': row[0], 'heat_type': row[1]}
+            return {'heat_value': None, 'heat_type': None}
+        except Exception as e:
+            logging.error(f"Failed to get heat data for reaction {reaction_id}: {e}")
+            return {'heat_value': None, 'heat_type': None}
 
     def get_total_reaction_count(self) -> int:
         """Get total count of all reactions in the database."""
@@ -376,14 +502,46 @@ class ChemLabDatabase:
             logging.error(f"Failed to get reaction counts by type: {e}")
             return []
 
+
     def close(self):
         """Close database connection."""
         try:
             if self.connection:
                 self.connection.close()
-                logging.info("ChemLab database connection closed")
         except Exception as e:
             logging.error(f"Error closing database: {e}")
+
+    def add_compound_name(self, formula: str, common_name: str, iupac_name: str = None,
+                          cid: int = None, molecular_weight: float = None) -> int:
+        """Add a saved compound name from PubChem lookup."""
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute('''
+                INSERT OR REPLACE INTO saved_compounds
+                (formula, common_name, iupac_name, cid, molecular_weight)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (formula, common_name, iupac_name, cid, molecular_weight))
+            self.connection.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            self.connection.rollback()
+            logging.error(f"Failed to add compound name: {e}")
+            raise
+
+    def get_compound_by_formula(self, formula: str):
+        """Get saved compound info by formula."""
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute('''
+                SELECT formula, common_name, iupac_name, cid, molecular_weight
+                FROM saved_compounds
+                WHERE formula = ?
+            ''', (formula,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except Exception as e:
+            logging.error(f"Failed to get compound: {e}")
+            return None
 
     def __enter__(self):
         return self

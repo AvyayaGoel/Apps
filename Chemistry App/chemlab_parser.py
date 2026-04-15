@@ -2,13 +2,16 @@
 ChemLab Parser - Handles all parsing and validation logic
 """
 
-import re
 import logging
-from math import gcd, lcm
+import re
 from fractions import Fraction
 from functools import reduce
+from math import gcd, lcm
+
 from mendeleev import element
-from constants import ARROWS, SUBSCRIPT_MAP, STATE_SYMBOL_PATTERN, SUBSCRIPT_DISPLAY_MAP, ARROW_MAP, STATE_NAMES
+
+from constants import ARROWS, SUBSCRIPT_MAP, STATE_SYMBOL_PATTERN, SUBSCRIPT_DISPLAY_MAP, ARROW_MAP, STATE_NAMES, HEAT_PATTERN
+
 
 class ChemLabParser:
     """Handles reaction parsing, element extraction, and validation"""
@@ -22,15 +25,15 @@ class ChemLabParser:
                 if len(parts) == 2:
                     return parts[0].strip(), parts[1].strip()
         return None, None
-    
+
     @staticmethod
     def extract_elements_from_side(side):
         """Extract elements from one side of reaction"""
         elements = []
-        
+
         # Split by + to get individual compounds
         compounds = [c.strip() for c in side.split('+')]
-        
+
         # Extract elements from each compound
         for compound in compounds:
             # Remove state symbols like (aq), (s), etc.
@@ -43,27 +46,27 @@ class ChemLabParser:
                 elements.extend(elements_in_compound.keys())
             except (ValueError, KeyError):
                 continue
-        
+
         return elements
-    
+
     @staticmethod
     def extract_elements_from_reaction(reaction):
         """Extract all elements from reaction"""
         elements = set()
-        
-        reactants, products= ChemLabParser.split_reaction(reaction)
+
+        reactants, products = ChemLabParser.split_reaction(reaction)
         if not reactants or not products:
             return list(elements)
-        
+
         # Extract from both sides
         reactant_elements = ChemLabParser.extract_elements_from_side(reactants)
         product_elements = ChemLabParser.extract_elements_from_side(products)
-        
+
         elements.update(reactant_elements)
         elements.update(product_elements)
-        
+
         return list(elements)
-    
+
     @staticmethod
     def parse_formula(formula):
         """Parse chemical formula to extract elements"""
@@ -92,14 +95,14 @@ class ChemLabParser:
                     stack[-1][e] = stack[-1].get(e, 0) + (c * mult)
 
         return stack[0]
-    
+
     @staticmethod
     def calculate_molar_mass(formula):
         """Calculate molar mass of a compound in g/mol"""
         try:
             elements = ChemLabParser.parse_formula(formula)
             total_mass = 0.0
-            
+
             for elem_symbol, count in elements.items():
                 try:
                     elem_data = element(elem_symbol)
@@ -109,12 +112,12 @@ class ChemLabParser:
                 except (ValueError, KeyError, AttributeError):
                     logging.warning(f"Could not find atomic mass for element: {elem_symbol}")
                     continue
-            
+
             return round(total_mass, 3)
         except Exception as e:
             logging.error(f"Error calculating molar mass for {formula}: {e}")
             return None
-    
+
     @staticmethod
     def calculate_elemental_composition(formula):
         """Calculate elemental composition (% by mass)"""
@@ -122,7 +125,7 @@ class ChemLabParser:
             elements = ChemLabParser.parse_formula(formula)
             total_mass = 0.0
             element_masses = {}
-            
+
             # Calculate mass contribution of each element
             for elem_symbol, count in elements.items():
                 try:
@@ -137,7 +140,7 @@ class ChemLabParser:
                         total_mass += mass
                 except (ValueError, KeyError, AttributeError):
                     continue
-            
+
             # Calculate percentages
             composition = {}
             for elem_symbol, data in element_masses.items():
@@ -146,12 +149,12 @@ class ChemLabParser:
                     'mass': round(data['mass'], 3),
                     'percentage': round((data['mass'] / total_mass) * 100, 2) if total_mass > 0 else 0
                 }
-            
+
             return composition, round(total_mass, 3)
         except Exception as e:
             logging.error(f"Error calculating elemental composition for {formula}: {e}")
             return None, None
-    
+
     @staticmethod
     def get_element_properties(elem_symbol):
         """Get properties of an element from mendeleev"""
@@ -168,20 +171,20 @@ class ChemLabParser:
             }
         except (ValueError, KeyError, AttributeError):
             return None
-    
+
     @staticmethod
     def extract_compounds_from_reaction(reaction):
-        """Extract reactants and products from reaction"""
+        """Extract reactants and products from reaction, excluding heat/energy symbols"""
         compounds = []
-        
+
         reactants, products = ChemLabParser.split_reaction(reaction)
         if not reactants or not products:
             return compounds
-        
+
         # Process reactants
         reactant_compounds = [c.strip() for c in reactants.split('+')]
         for compound in reactant_compounds:
-            state,_ = ChemLabParser.extract_state_symbol(compound)
+            state, _ = ChemLabParser.extract_state_symbol(compound)
             compounds.append({
                 'formula': compound,
                 'type': 'Reactant',
@@ -190,11 +193,11 @@ class ChemLabParser:
                 'state': state,
                 'notes': ''
             })
-        
+
         # Process products
         product_compounds = [c.strip() for c in products.split('+')]
         for compound in product_compounds:
-            state,_ = ChemLabParser.extract_state_symbol(compound)
+            state, _ = ChemLabParser.extract_state_symbol(compound)
             compounds.append({
                 'formula': compound,
                 'type': 'Product',
@@ -203,9 +206,9 @@ class ChemLabParser:
                 'state': state,
                 'notes': ''
             })
-        
+
         return compounds
-    
+
     @staticmethod
     def _validate_elements_exist(reactant_elements, product_elements):
         """Check if all elements in the reaction are real elements.
@@ -220,7 +223,7 @@ class ChemLabParser:
                 element(elem)  # Test if element exists
             except (ValueError, KeyError):
                 invalid_elements.append(elem)
-        
+
         if invalid_elements:
             return False, invalid_elements
         return True, None
@@ -234,10 +237,10 @@ class ChemLabParser:
         """
         reactant_set = set(reactant_elements)
         product_set = set(product_elements)
-        
+
         missing_in_products = reactant_set - product_set
         missing_in_reactants = product_set - reactant_set
-        
+
         if missing_in_products or missing_in_reactants:
             error_msg = "Element mismatch: "
             if missing_in_products:
@@ -246,9 +249,9 @@ class ChemLabParser:
                 if missing_in_products:
                     error_msg += "; "
                 error_msg += f"Missing in reactants: {', '.join(missing_in_reactants)}"
-            
+
             return False, error_msg, True  # Allow unbalanced equations
-        
+
         return True, None, False
 
     @staticmethod
@@ -259,39 +262,39 @@ class ChemLabParser:
             reactants, products = ChemLabParser.split_reaction(reaction)
             if not reactants or not products:
                 return {'valid': False, 'error': 'No valid arrow found'}
-            
+
             # Extract elements from both sides
             reactant_elements = ChemLabParser.extract_elements_from_side(reactants)
             product_elements = ChemLabParser.extract_elements_from_side(products)
-            
+
             # Check if all elements are real
             elements_valid, invalid_elements = ChemLabParser._validate_elements_exist(
                 reactant_elements, product_elements
             )
-            
+
             if not elements_valid:
                 return {
-                    'valid': False, 
+                    'valid': False,
                     'error': f'Invalid elements: {", ".join(invalid_elements)}'
                 }
-            
+
             # Check element consistency (LHS elements must be in RHS)
             consistency_valid, error_msg, allow_save = ChemLabParser._check_element_consistency(
                 reactant_elements, product_elements
             )
-            
+
             if not consistency_valid:
                 return {
-                    'valid': False, 
+                    'valid': False,
                     'error': error_msg,
                     'allow_save': allow_save
                 }
-            
+
             return {'valid': True, 'error': None}
-            
+
         except Exception as e:
             return {'valid': False, 'error': f'Validation error: {str(e)}'}
-    
+
     @staticmethod
     def extract_state_symbol(formula):
         """Extract state from compound formula and return (state, clean_formula)"""
@@ -301,7 +304,7 @@ class ChemLabParser:
             clean_formula = re.sub(STATE_SYMBOL_PATTERN, '', formula)
             return state, clean_formula
         return '', formula
-    
+
     @staticmethod
     def clean_formula(formula):
         """Remove coefficients from formula"""
@@ -310,46 +313,34 @@ class ChemLabParser:
     @staticmethod
     def auto_balance_reaction(reaction):
         """Auto-balance a chemical reaction using iterative coefficient finding"""
-        logging.info(f"[BALANCE] Starting auto-balance for reaction: {reaction}")
-        
         reactants_str, products_str = ChemLabParser.split_reaction(reaction)
-        logging.info(f"[BALANCE] Split - reactants='{reactants_str}', products='{products_str}'")
-        
         if not reactants_str or not products_str:
             logging.error("[BALANCE] Split failed - returning original")
             return reaction
-        
+
         reactant_compounds = [c.strip() for c in reactants_str.split('+')]
         product_compounds = [c.strip() for c in products_str.split('+')]
-        logging.info(f"[BALANCE] Parsed - reactants={reactant_compounds}, products={product_compounds}")
-        
         all_elements = ChemLabParser._get_all_elements(reactant_compounds, product_compounds)
-        logging.info(f"[BALANCE] Elements found: {all_elements}")
-        
+
         if not all_elements:
             logging.error("[BALANCE] No elements found - returning original")
             return reaction
-        
+
         reactant_counts = ChemLabParser._get_element_counts(reactant_compounds)
         product_counts = ChemLabParser._get_element_counts(product_compounds)
-        logging.info(f"[BALANCE] Element counts - reactants={reactant_counts}, products={product_counts}")
-        
         r_coeffs, p_coeffs = ChemLabParser._find_coefficients(
             reactant_counts, product_counts, all_elements
         )
-        
-        logging.info(f"[BALANCE] Found coefficients - r_coeffs={r_coeffs}, p_coeffs={p_coeffs}")
-        
+
         if r_coeffs is None:
             logging.error("[BALANCE] Failed to find coefficients - returning original")
             return reaction
-        
+
         result = ChemLabParser._build_balanced_reaction(
             reaction, reactant_compounds, product_compounds, r_coeffs, p_coeffs
         )
-        logging.info(f"[BALANCE] Final balanced reaction: {result}")
         return result
-    
+
     @staticmethod
     def _get_all_elements(reactant_compounds, product_compounds):
         """Extract all unique elements from compounds"""
@@ -358,7 +349,7 @@ class ChemLabParser:
             elements = ChemLabParser.extract_elements_from_side(comp)
             all_elements.update(elements)
         return all_elements
-    
+
     @staticmethod
     def _get_element_counts(compounds):
         """Get element counts for each compound"""
@@ -369,7 +360,7 @@ class ChemLabParser:
             parsed = ChemLabParser.parse_formula(comp_clean)
             counts.append(parsed)
         return counts
-    
+
     @staticmethod
     def _build_augmented_matrix(reactant_counts, product_counts, elements, num_r, num_p):
         """Build augmented matrix for Gaussian elimination."""
@@ -385,13 +376,13 @@ class ChemLabParser:
             # RHS = 0 for element balance equations
             row.append(Fraction(0))
             matrix.append(row)
-        
+
         # Add constraint row: first reactant = 1
         constraint_row = [Fraction(0)] * (num_r + num_p) + [Fraction(1)]
         if num_r > 0:
             constraint_row[0] = Fraction(1)
         matrix.append(constraint_row)
-        
+
         return matrix
 
     @staticmethod
@@ -402,10 +393,10 @@ class ChemLabParser:
         common_denom = denominators[0]
         for d in denominators[1:]:
             common_denom = lcm(common_denom, d)
-        
+
         r_coeffs = [int(f * common_denom) for f in r_coeffs_frac]
         p_coeffs = [int(f * common_denom) for f in p_coeffs_frac]
-        
+
         return r_coeffs, p_coeffs, common_denom
 
     @staticmethod
@@ -426,41 +417,29 @@ class ChemLabParser:
         num_r = len(reactant_counts)
         num_p = len(product_counts)
         num_vars = num_r + num_p
-        
-        logging.info(f"[FIND_COEFFS] Solving for {len(elements)} elements, {num_r} reactants, {num_p} products")
-        logging.info(f"[FIND_COEFFS] Elements: {elements}")
-        logging.info(f"[FIND_COEFFS] Reactant counts: {reactant_counts}")
-        logging.info(f"[FIND_COEFFS] Product counts: {product_counts}")
-        
+
         if num_vars < 2:
             return None, None
-        
+
         matrix = ChemLabParser._build_augmented_matrix(reactant_counts, product_counts, elements, num_r, num_p)
-        
-        logging.info(f"[FIND_COEFFS] Augmented matrix: {len(matrix)} rows x {len(matrix[0])} cols")
-        for i, row in enumerate(matrix):
-            logging.info(f"[FIND_COEFFS] Row {i}: {[str(x) for x in row]}")
-        
+
         solution = ChemLabParser._solve_linear_system(matrix, num_vars)
-        logging.info(f"[FIND_COEFFS] Solution from solver: {solution}")
-        
+
         if solution is None:
             logging.error("[FIND_COEFFS] Failed to solve linear system")
             return None, None
-        
+
         r_coeffs_frac = [Fraction(solution[i]) for i in range(num_r)]
         p_coeffs_frac = [Fraction(solution[num_r + i]) for i in range(num_p)]
-        
+
         r_coeffs, p_coeffs, common_denom = ChemLabParser._convert_to_integers(r_coeffs_frac, p_coeffs_frac)
-        
-        logging.info(f"[FIND_COEFFS] LCM of denominators: {common_denom}")
-        logging.info(f"[FIND_COEFFS] Raw solution: r_coeffs={r_coeffs}, p_coeffs={p_coeffs}")
-        
-        if not ChemLabParser._verify_coefficients(r_coeffs, p_coeffs, reactant_counts, product_counts, elements, num_r, num_p):
+
+        if not ChemLabParser._verify_coefficients(r_coeffs, p_coeffs, reactant_counts, product_counts, elements, num_r,
+                                                  num_p):
             return None, None
-        
+
         return ChemLabParser._simplify_coefficients(r_coeffs, p_coeffs)
-    
+
     @staticmethod
     def _find_pivot_row(aug, col, start_row, num_rows):
         """Find pivot row with non-zero element in given column."""
@@ -500,54 +479,39 @@ class ChemLabParser:
     @staticmethod
     def _solve_linear_system(matrix, num_vars):
         """Solve linear system using Gaussian elimination with augmented matrix [A | b]."""
-        logging.info(f"[SOLVE] Entering solver with {len(matrix)} rows, {num_vars} variables")
-        
         if not matrix:
             return None
-        
+
         num_rows = len(matrix)
         aug = [row[:] for row in matrix]
-        
-        logging.info("[SOLVE] Starting Gaussian elimination on augmented matrix")
-        
+
         row = 0
         for col in range(num_vars):
             pivot_row = ChemLabParser._find_pivot_row(aug, col, row, num_rows)
-            
+
             if pivot_row is None:
-                logging.info(f"[SOLVE] No pivot found for column {col}, skipping")
                 continue
-            
-            logging.info(f"[SOLVE] Pivot for col {col}: row {pivot_row}, value {aug[pivot_row][col]}")
-            
             # Swap rows
             aug[row], aug[pivot_row] = aug[pivot_row], aug[row]
-            
+
             # Normalize and eliminate
             aug[row] = ChemLabParser._normalize_row(aug, row, col)
-            logging.info(f"[SOLVE] Normalized row {row}: {[str(x) for x in aug[row]]}")
-            
             aug = ChemLabParser._eliminate_column(aug, row, col, num_rows)
-            
+
             row += 1
             if row >= num_rows:
                 break
-        
-        logging.info("[SOLVE] Elimination complete. Final augmented matrix:")
-        for i, r in enumerate(aug):
-            logging.info(f"[SOLVE] Row {i}: {[str(x) for x in r]}")
-        
+
         solution = ChemLabParser._extract_solution(aug, num_vars, num_rows)
-        
-        logging.info(f"[SOLVE] Final solution: {[str(x) for x in solution]}")
-        
+
+
         # Check if any coefficient is 0 or negative
         if any(s <= 0 for s in solution):
             logging.error("[SOLVE] ERROR: Invalid solution (zero or negative coefficients)")
             return None
-        
+
         return solution
-    
+
     @staticmethod
     def _simplify_coefficients(r_coeffs, p_coeffs):
         """Simplify coefficients by dividing by GCD"""
@@ -557,7 +521,7 @@ class ChemLabParser:
             r_coeffs = [c // common_gcd for c in r_coeffs]
             p_coeffs = [c // common_gcd for c in p_coeffs]
         return r_coeffs, p_coeffs
-    
+
     @staticmethod
     def _build_balanced_reaction(reaction, r_compounds, p_compounds, r_coeffs, p_coeffs):
         """Build the balanced reaction string"""
@@ -565,7 +529,7 @@ class ChemLabParser:
         r_side = ChemLabParser._format_side(r_compounds, r_coeffs)
         p_side = ChemLabParser._format_side(p_compounds, p_coeffs)
         return f"{r_side} {arrow_used} {p_side}"
-    
+
     @staticmethod
     def _get_arrow_used(reaction):
         """Get the arrow used in the original reaction"""
@@ -573,7 +537,7 @@ class ChemLabParser:
             if arrow in reaction:
                 return arrow
         return '→'
-    
+
     @staticmethod
     def _format_side(compounds, coeffs):
         """Format one side of the reaction with coefficients, preserving state symbols"""
@@ -668,3 +632,65 @@ class ChemLabParser:
             return {'name': elem.name, 'atomic_number': elem.atomic_number}
         except (ValueError, KeyError):
             return {'name': 'Unknown', 'atomic_number': 0}
+
+    # ============================================================================
+    # DUPLICATE CHECKER METHODS
+    # ============================================================================
+
+    @staticmethod
+    def normalize_reaction_for_comparison(reaction):
+        """Normalize a reaction for duplicate comparison.
+        
+        Returns a tuple of (frozenset of normalized reactants, frozenset of normalized products).
+        This allows comparison regardless of compound order or coefficients.
+        """
+        reactants_str, products_str = ChemLabParser.split_reaction(reaction)
+        if not reactants_str or not products_str:
+            return None
+        
+        # Normalize each compound: remove coefficients, state symbols, convert to ASCII
+        def normalize_compound(compound):
+            compound = compound.strip()
+            # Remove leading coefficients
+            compound = re.sub(r'^\d+', '', compound)
+            # Remove state symbols
+            compound = re.sub(r'\([a-z]+\)$', '', compound, flags=re.IGNORECASE)
+            # Convert subscripts to regular numbers
+            compound = compound.translate(SUBSCRIPT_MAP)
+            return compound.strip()
+        
+        # Process reactants
+        reactant_list = [normalize_compound(c) for c in reactants_str.split('+')]
+        reactant_set = frozenset(reactant_list)
+        
+        # Process products
+        product_list = [normalize_compound(c) for c in products_str.split('+')]
+        product_set = frozenset(product_list)
+        
+        return reactant_set, product_set
+
+    @staticmethod
+    def is_duplicate_reaction(new_reaction, existing_reactions):
+        """Check if a reaction is a duplicate of any existing reaction.
+        
+        Args:
+            new_reaction: The reaction string to check
+            existing_reactions: List of existing reaction strings from database
+            
+        Returns:
+            tuple: (is_duplicate: bool, matching_reaction: str or None)
+        """
+        new_normalized = ChemLabParser.normalize_reaction_for_comparison(new_reaction)
+        if new_normalized is None:
+            return False, None
+        
+        for existing in existing_reactions:
+            existing_normalized = ChemLabParser.normalize_reaction_for_comparison(existing)
+            if existing_normalized is None:
+                continue
+            
+            # Compare both reactants and products as sets
+            if new_normalized[0] == existing_normalized[0] and new_normalized[1] == existing_normalized[1]:
+                return True, existing
+        
+        return False, None
