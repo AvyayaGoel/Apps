@@ -10,10 +10,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QWidget, QFrame,
                              QHBoxLayout, QTableWidget, QTableWidgetItem,
                              QLineEdit, QPushButton, QLabel, QSplitter,
                              QGroupBox, QHeaderView, QMessageBox, QComboBox)
-from mendeleev import element
-
 from ChemicalKeyboard import ChemicalKeyboard
-from chemlab_parser import ChemLabParser
+from chemlab_parser import ChemLabParser, get_element
 from compound_learner import CompoundLearner
 from constants import (
     ARROWS, COMMON_REACTION_TYPES, DEFAULT_COLOR,
@@ -58,7 +56,7 @@ class SaveReactionWorker(QThread):
         elements = ChemLabParser.extract_elements_from_reaction(reaction)
         for element_symbol in elements:
             try:
-                elem = element(element_symbol)
+                elem = get_element(element_symbol)
                 self.db.add_or_update_element(element_symbol, elem.name, elem.atomic_number)
             except (ValueError, KeyError):
                 self.db.add_or_update_element(element_symbol, 'Unknown', 0)
@@ -161,7 +159,7 @@ class PreviewWorker(QThread):
             preview_elements = {}
             for element_symbol in elements:
                 try:
-                    elem = element(element_symbol)
+                    elem = get_element(element_symbol)
                     preview_elements[element_symbol] = {
                         'name': elem.name,
                         'atomic_number': elem.atomic_number
@@ -355,7 +353,7 @@ class ReactionDialog(QDialog):
             self.elements_data = {}
             for element_symbol in elements_list:
                 try:
-                    elem = element(element_symbol)
+                    elem = get_element(element_symbol)
                     self.elements_data[element_symbol] = {
                         'name': elem.name,
                         'atomic_number': elem.atomic_number
@@ -744,8 +742,7 @@ class ReactionDialog(QDialog):
             self.tag_entry.setPlaceholderText("Enter tag (e.g., organic, exam-chapter-5)")
 
     def cancel_dialog(self):
-        """Cancel and close dialog, clearing edit state"""
-        self.current_reaction_id = None
+        """Cancel and close dialog"""
         self.reject()
 
     def handle_reaction_saved(self, reaction, reaction_type, heat_value, heat_type,
@@ -1517,6 +1514,7 @@ class ReactionDialog(QDialog):
             # Stop the draft timer and accept close without saving draft
             if hasattr(self, '_draft_timer'):
                 self._draft_timer.stop()
+            self.current_reaction_id = None  # Clear the ID on close
             event.accept()
             return
 
@@ -1545,6 +1543,7 @@ class ReactionDialog(QDialog):
         if hasattr(self, '_draft_timer'):
             self._draft_timer.stop()
 
+        self.current_reaction_id = None  # Clear the ID on close
         event.accept()
 
     @staticmethod

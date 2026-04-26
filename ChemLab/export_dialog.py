@@ -6,6 +6,7 @@ import csv
 import html
 import json
 import time
+import logging
 from typing import Dict, List, Any
 
 from PyQt6.QtCore import Qt
@@ -184,13 +185,6 @@ class ExportDialog(QDialog):
         separator.setFixedHeight(1)
         self.selectors_layout.addWidget(separator)
 
-        # Add separator before Favorites
-        fav_separator = QFrame()
-        fav_separator.setFrameShape(QFrame.Shape.HLine)
-        fav_separator.setStyleSheet("background-color: #666;")
-        fav_separator.setFixedHeight(1)
-        self.selectors_layout.addWidget(fav_separator)
-
         # Check if favorites exist
         all_reactions = self.db.get_all_reactions()
         self._has_favorites = any(r.get('is_favorite', 0) == 1 for r in all_reactions)
@@ -206,6 +200,25 @@ class ExportDialog(QDialog):
             }
         """)
         self.selectors_layout.addWidget(self.favorites_checkbox)
+
+        # Heat type filter checkboxes
+        self.exothermic_checkbox = QCheckBox("Exothermic")
+        self.exothermic_checkbox.setChecked(False)
+        self.exothermic_checkbox.setStyleSheet(checkbox_style + """
+            QCheckBox {
+                color: #ff6b6b;
+            }
+        """)
+        self.selectors_layout.addWidget(self.exothermic_checkbox)
+
+        self.endothermic_checkbox = QCheckBox("Endothermic")
+        self.endothermic_checkbox.setChecked(False)
+        self.endothermic_checkbox.setStyleSheet(checkbox_style + """
+            QCheckBox {
+                color: #4ecdc4;
+            }
+        """)
+        self.selectors_layout.addWidget(self.endothermic_checkbox)
 
         # Add separator after Favorites
         separator2 = QFrame()
@@ -283,9 +296,11 @@ class ExportDialog(QDialog):
         all_reactions = self.db.get_all_reactions()
         selected_types = self._get_selected_types()
         export_favorites = self.favorites_checkbox.isChecked()
+        export_exothermic = self.exothermic_checkbox.isChecked()
+        export_endothermic = self.endothermic_checkbox.isChecked()
 
         # If no types selected and favorites not checked, return empty
-        if not selected_types and not export_favorites:
+        if not selected_types and not export_favorites and not export_exothermic and not export_endothermic:
             return []
 
         filtered_ids = set()
@@ -302,8 +317,18 @@ class ExportDialog(QDialog):
                 if r.get('is_favorite', 0) == 1:
                     filtered_ids.add(r['id'])
 
-        # Return all reactions whose IDs are in the filtered set
+        # Add heat type reactions (additive - combines with other filters)
+        if export_exothermic or export_endothermic:
+            for r in all_reactions:
+                heat_type = (r.get('heat_type') or '').lower()
+                if export_exothermic and heat_type == 'exothermic':
+                    filtered_ids.add(r['id'])
+                elif export_endothermic and heat_type == 'endothermic':
+                    filtered_ids.add(r['id'])
+
+        # Get filtered reactions
         filtered = [r for r in all_reactions if r['id'] in filtered_ids]
+
         return filtered
 
     def _perform_export(self):
@@ -616,6 +641,12 @@ class ExportDialog(QDialog):
                 html_content += '        <div class="reaction">\n'
                 html_content += f'            <div class="reaction-text">{reaction_text}</div>\n'
 
+                # Add tags if available
+                tags = self.db.get_tags_for_reaction(reaction['id'])
+                if tags:
+                    tags_display = ' '.join(f'#{html.escape(tag)}' for tag in tags)
+                    html_content += f'            <div class="reaction-tags" style="color: #0078d4; font-size: 0.9em; margin-top: 5px;">{tags_display}</div>\n'
+
                 # Add heat output if available (separate from conditions)
                 heat_value = reaction.get('heat_value', '')
                 heat_type = reaction.get('heat_type', '')
@@ -686,7 +717,7 @@ class ExportDialog(QDialog):
     def _export_to_csv(self, file_path: str, reactions: List[Dict[str, Any]]) -> None:
         """Export reactions to CSV format"""
         with open(file_path, 'w', newline='', encoding='utf-8-sig') as csvfile:
-            fieldnames = ['ID', 'Reaction', 'Type', 'Compound Count', 'Temperature', 'Pressure', 'Catalyst',
+            fieldnames = ['ID', 'Reaction', 'Type', 'Tags', 'Compound Count', 'Temperature', 'Pressure', 'Catalyst',
                           'ΔH Output', 'Heat Value', 'Heat Type']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
@@ -707,7 +738,9 @@ class ExportDialog(QDialog):
                 pressure_display = f"{pressure}{pressure_unit}" if pressure and pressure_unit else (
                     pressure if pressure else '')
 
-                # Get heat info with formatted output
+                # Get tags and heat info
+                tags = self.db.get_tags_for_reaction(r['id'])
+                tags_display = ' '.join(f'#{tag}' for tag in tags) if tags else ''
                 heat_value = r.get('heat_value', '')
                 heat_type = r.get('heat_type', '')
                 heat_output, _ = self._format_heat_display(heat_value, heat_type, use_html=False)
@@ -716,6 +749,7 @@ class ExportDialog(QDialog):
                     'ID': r['id'],
                     'Reaction': r['reaction_text'],
                     'Type': r.get('reaction_type', 'Unknown'),
+                    'Tags': tags_display,
                     'Compound Count': compound_count,
                     'Temperature': temp_display,
                     'Pressure': pressure_display,
@@ -735,6 +769,7 @@ class ExportDialog(QDialog):
 
         for r in reactions:
             compounds = self.db.get_compounds_for_reaction(r['id'])
+            tags = self.db.get_tags_for_reaction(r['id'])
             # Get formatted heat output
             heat_value = r.get('heat_value', '')
             heat_type = r.get('heat_type', '')
@@ -743,6 +778,7 @@ class ExportDialog(QDialog):
                 'id': r['id'],
                 'reaction_text': r['reaction_text'],
                 'reaction_type': r.get('reaction_type', 'Unknown'),
+                'tags': [f'#{tag}' for tag in tags] if tags else [],
                 'temperature': r.get('temperature', ''),
                 'temperature_unit': r.get('temperature_unit', ''),
                 'pressure': r.get('pressure', ''),
@@ -787,6 +823,12 @@ class ExportDialog(QDialog):
 
             for r in grouped[rtype]:
                 content += f"**{r['reaction_text']}**\n\n"
+
+                # Add tags if available
+                tags = self.db.get_tags_for_reaction(r['id'])
+                if tags:
+                    tags_display = ' '.join(f'#{tag}' for tag in tags)
+                    content += f"*{tags_display}*\n\n"
 
                 # Add heat output if available (separate from conditions)
                 heat_value = r.get('heat_value', '')
@@ -846,6 +888,12 @@ class ExportDialog(QDialog):
 
             for r in grouped[rtype]:
                 content += f"  {r['reaction_text']}\n"
+
+                # Add tags if available
+                tags = self.db.get_tags_for_reaction(r['id'])
+                if tags:
+                    tags_display = ' '.join(f'#{tag}' for tag in tags)
+                    content += f"    [{tags_display}]\n"
 
                 # Add heat output if available (separate from conditions)
                 heat_value = r.get('heat_value', '')

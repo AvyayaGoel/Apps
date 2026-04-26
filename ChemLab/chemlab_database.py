@@ -17,7 +17,7 @@ class ChemLabDatabase:
     @staticmethod
     def get_default_db_path():
         """Get the default database path in Local AppData.
-        
+
         Creates the ChemLab Data folder if it doesn't exist.
         """
         # Get Local AppData path
@@ -30,21 +30,25 @@ class ChemLabDatabase:
         chemlab_folder = os.path.join(local_appdata, 'ChemLab Data')
         os.makedirs(chemlab_folder, exist_ok=True)
 
-        # Return full db path
         return os.path.join(chemlab_folder, 'chemlab_data.db')
 
     def __init__(self):
         """Initialize the database."""
-
         self.db_path = self.get_default_db_path()
         self.connection = None
+        self._optimize_counter = 0
         self._initialize_database()
 
     def _initialize_database(self):
         """Initialize database connection and create tables if they don't exist."""
         try:
             self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
-            self.connection.row_factory = sqlite3.Row  # Enable dict-like access
+            self.connection.row_factory = sqlite3.Row
+
+            # Set WAL mode
+            self.connection.execute('PRAGMA journal_mode=WAL;')
+            # Set synchronous mode
+            self.connection.execute('PRAGMA synchronous=NORMAL;')
 
             # Enable foreign key constraints
             cursor = self.connection.cursor()
@@ -53,6 +57,7 @@ class ChemLabDatabase:
 
             self._create_tables()
             self._create_indexes()
+
         except Exception as e:
             logging.error(f"Failed to initialize ChemLab database: {e}")
             raise
@@ -186,7 +191,6 @@ class ChemLabDatabase:
     def get_all_reactions(self) -> List[Dict]:
         """Get all reactions from the database, favorites first (by favorite_at time)."""
         cursor = self.connection.cursor()
-
         try:
             cursor.execute('''
                 SELECT * FROM reactions
@@ -196,7 +200,6 @@ class ChemLabDatabase:
             ''')
             reaction_rows = cursor.fetchall()
             return [dict(row) for row in reaction_rows]
-
         except Exception as e:
             logging.error(f"Failed to get all reactions: {e}")
             return []
@@ -277,12 +280,10 @@ class ChemLabDatabase:
     def get_compounds_for_reaction(self, reaction_id: int) -> List[Dict]:
         """Get all compounds for a specific reaction."""
         cursor = self.connection.cursor()
-
         try:
             cursor.execute('SELECT * FROM compounds WHERE reaction_id = ? ORDER BY id', (reaction_id,))
             compound_rows = cursor.fetchall()
             return [dict(row) for row in compound_rows]
-
         except Exception as e:
             logging.error(f"Failed to get compounds for reaction {reaction_id}: {e}")
             return []
@@ -355,31 +356,6 @@ class ChemLabDatabase:
             logging.error(f"Failed to delete compounds for reaction {reaction_id}: {e}")
             return False
 
-    def get_reaction_compounds(self, reaction_id: int) -> List[Dict]:
-        """Get all compounds for a specific reaction"""
-        cursor = self.connection.cursor()
-        try:
-            cursor.execute('''
-                SELECT formula, compound_type, name, state, color
-                FROM compounds
-                WHERE reaction_id = ?
-                ORDER BY id
-            ''', (reaction_id,))
-            rows = cursor.fetchall()
-            return [
-                {
-                    'formula': row[0],
-                    'type': row[1],
-                    'name': row[2] or '',
-                    'state': row[3] or '',
-                    'color': row[4] or ''
-                }
-                for row in rows
-            ]
-        except Exception as e:
-            logging.error(f"Failed to get compounds for reaction {reaction_id}: {e}")
-            return []
-
     def get_all_reaction_types(self) -> List[str]:
         """Get all unique reaction types from database"""
         cursor = self.connection.cursor()
@@ -399,33 +375,16 @@ class ChemLabDatabase:
             logging.error(f"Failed to get reaction types: {e}")
             return []
 
-    def optimize_database(self):
-        """Optimize the database"""
-        try:
-            self.connection.execute('VACUUM')
-
-        except Exception as e:
-            logging.error(f"Failed to optimize database: {e}")
-
-    def get_elements_for_reaction(self, reaction_id: int) -> List[Dict]:
-        """Get all elements for a specific reaction"""
-        cursor = self.connection.cursor()
-
-        try:
-            cursor.execute('''
-                SELECT DISTINCT e.symbol, e.name, e.atomic_number
-                FROM elements e
-                JOIN compounds c ON c.formula LIKE '%' || e.symbol || '%'
-                WHERE c.reaction_id = ?
-                ORDER BY e.atomic_number
-            ''', (reaction_id,))
-
-            element_rows = cursor.fetchall()
-            return [dict(row) for row in element_rows]
-
-        except Exception as e:
-            logging.error(f"Failed to get elements for reaction {reaction_id}: {e}")
-            return []
+    def optimize_database(self, force=False):
+        """Optimize the database. VACUUM runs every 4 calls or when forced."""
+        self._optimize_counter += 1
+        # Only VACUUM every 4 calls, or when forced (e.g., on close)
+        if force or self._optimize_counter >= 4:
+            try:
+                self.connection.execute('VACUUM')
+                self._optimize_counter = 0
+            except Exception as e:
+                logging.error(f"[DB_OPTIMIZE] FAILED to optimize database: {e}")
 
     def update_reaction(self, reaction_id: int, reaction_text: str, reaction_type: str,
                         heat_value: float = None, heat_type: str = None,
@@ -466,7 +425,6 @@ class ChemLabDatabase:
 
             current_status = row[0] if row else 0
             new_status = 0 if current_status else 1
-
             if new_status:
                 # Setting as favorite - set favorite_at timestamp
                 cursor.execute('''
@@ -486,7 +444,7 @@ class ChemLabDatabase:
             return bool(new_status)
 
         except Exception as e:
-            logging.error(f"Failed to toggle favorite for reaction {reaction_id}: {e}")
+            logging.error(f"[DB_WRITE] FAILED to toggle favorite for reaction {reaction_id}: {e}")
             return False
 
     def get_reaction_heat_data(self, reaction_id: int) -> dict:
@@ -498,11 +456,10 @@ class ChemLabDatabase:
                 (reaction_id,)
             )
             row = cursor.fetchone()
-            if row:
-                return {'heat_value': row[0], 'heat_type': row[1]}
-            return {'heat_value': None, 'heat_type': None}
+            return {'heat_value': row[0], 'heat_type': row[1]} if row else {'heat_value': None, 'heat_type': None}
+
         except Exception as e:
-            logging.error(f"Failed to get heat data for reaction {reaction_id}: {e}")
+            logging.error(f"[DB_READ] FAILED to get heat data for reaction {reaction_id}: {e}")
             return {'heat_value': None, 'heat_type': None}
 
     def get_reaction_conditions(self, reaction_id: int) -> dict:
@@ -514,14 +471,17 @@ class ChemLabDatabase:
                 (reaction_id,)
             )
             row = cursor.fetchone()
+
             if row:
                 return {'temperature': row[0], 'temperature_unit': row[1],
                         'pressure': row[2], 'pressure_unit': row[3],
                         'catalyst': row[4], 'notes': row[5]}
+
             return {'temperature': None, 'temperature_unit': None,
                     'pressure': None, 'pressure_unit': None, 'catalyst': None, 'notes': None}
+
         except Exception as e:
-            logging.error(f"Failed to get reaction conditions for reaction {reaction_id}: {e}")
+            logging.error(f"[DB_READ] FAILED to get reaction conditions for reaction {reaction_id}: {e}")
             return {'temperature': None, 'temperature_unit': None,
                     'pressure': None, 'pressure_unit': None, 'catalyst': None, 'notes': None}
 
@@ -574,9 +534,13 @@ class ChemLabDatabase:
         """Close database connection."""
         try:
             if self.connection:
+                self.optimize_database(force=True)
+
                 self.connection.close()
+                self.connection = None
+
         except Exception as e:
-            logging.error(f"Error closing database: {e}")
+            logging.error(f"[DB_CLOSE] FAILED to close database: {e}")
 
     def add_compound_name(self, formula: str, common_name: str, iupac_name: str = None,
                           cid: int = None, molecular_weight: float = None) -> int:
@@ -646,9 +610,11 @@ class ChemLabDatabase:
                 SELECT tag FROM reaction_tags WHERE reaction_id = ? ORDER BY tag
             ''', (reaction_id,))
             rows = cursor.fetchall()
-            return [row[0] for row in rows]
+            tags = [row[0] for row in rows]
+            return tags
+
         except Exception as e:
-            logging.error(f"Failed to get tags for reaction {reaction_id}: {e}")
+            logging.error(f"[DB_READ] FAILED to get tags for reaction {reaction_id}: {e}")
             return []
 
     def delete_tags_for_reaction(self, reaction_id: int) -> bool:

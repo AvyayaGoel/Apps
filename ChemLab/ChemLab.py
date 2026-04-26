@@ -11,10 +11,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QLineEdit, QPushButton, QLabel,
                              QGroupBox, QHeaderView, QMessageBox,
                              QFrame, QGridLayout, QMenu)
-from mendeleev import element
-
 from chemlab_database import ChemLabDatabase
-from chemlab_parser import ChemLabParser
+from chemlab_parser import ChemLabParser, get_element
 from constants import (
     DEFAULT_COLOR, REACTIONS_COLUMNS,
     COMPOUNDS_COLUMNS, ELEMENTS_COLUMNS, STATE_NAMES,
@@ -30,7 +28,6 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
-
 
 class ChemLab(QMainWindow):
     def __init__(self):
@@ -52,13 +49,8 @@ class ChemLab(QMainWindow):
         self.view_reaction_btn = QPushButton("👁 View")
         self.edit_reaction_btn = QPushButton("✏️ Edit")
         self.delete_reaction_btn = QPushButton("🗑 Delete")
-        self.cancel_calc_btn = QPushButton("❌ Cancel Calculation")  # Cancel button for calculation selection mode
         self.filter_menu = QMenu(self)
         self.central_widget = None  # Will hold reference to central widget
-
-        # Calculate dialog and selection mode tracking
-        self.calculate_dialog = None
-        self.in_calculation_selection_mode = False
 
         # Search and pagination controls (initialized in create_reactions_table)
         self.search_entry = None
@@ -221,12 +213,6 @@ class ChemLab(QMainWindow):
         self.last_page_btn.setEnabled(False)
         nav_layout.addWidget(self.last_page_btn)
 
-        # Cancel Calculation button (only visible during calculation selection mode)
-        self.cancel_calc_btn.setFont(nav_font)
-        self.cancel_calc_btn.clicked.connect(self.cancel_calculation_selection)
-        self.cancel_calc_btn.setVisible(False)  # Hidden by default
-        nav_layout.addWidget(self.cancel_calc_btn)
-
         # Spacer to push action buttons to the right
         nav_layout.addStretch()
 
@@ -278,11 +264,6 @@ class ChemLab(QMainWindow):
         stats_action.triggered.connect(self.show_stats_dialog)
         tools_menu.addAction(stats_action)
 
-        # Calculate action
-        calc_action = QAction("🧮 Calculate (Later)", self)
-        calc_action.triggered.connect(self.show_calculate_dialog)
-        calc_action.setEnabled(False)
-        tools_menu.addAction(calc_action)
 
     def show_stats_dialog(self):
         """Show statistics dialog"""
@@ -293,16 +274,6 @@ class ChemLab(QMainWindow):
             return
         self.stats_dialog.raise_()
         self.stats_dialog.activateWindow()
-
-    def show_calculate_dialog(self):
-        """Show calculation dialog
-        Later
-        if not self.calculate_dialog:
-            self.calculate_dialog = CalculateDialog(self.db, self)
-        self.calculate_dialog.show()
-        self.calculate_dialog.raise_()
-        self.calculate_dialog.activateWindow()"""
-        pass
 
     def open_reaction_dialog(self, reaction_id=None):
         """Open the reaction dialog for adding or editing a reaction"""
@@ -606,31 +577,6 @@ class ChemLab(QMainWindow):
         """Handle reaction selection and enable/disable action buttons"""
         selected_items = self.reactions_table.selectedItems()
         has_selection = len(selected_items) == 3
-
-        # If in calculation selection mode, handle selection differently
-        if self.in_calculation_selection_mode and has_selection:
-            # Get the selected reaction data
-            selected_row = selected_items[0].row()
-            # Column 0 is star (has ID), column 1 is reaction text
-            star_item = self.reactions_table.item(selected_row, 0)
-
-            if star_item:
-                reaction_id = star_item.data(Qt.ItemDataRole.UserRole)
-
-                # Find the full reaction data from all_reactions
-                reaction_data = None
-                for reaction in self.all_reactions:
-                    if reaction['id'] == reaction_id:
-                        reaction_data = reaction
-                        break
-
-                if reaction_data and self.calculate_dialog:
-                    # Disable selection mode
-                    self.disable_reaction_selection_mode()
-                    # Notify the dialog
-                    self.calculate_dialog.on_reaction_selected(reaction_data)
-            return
-
         # Normal mode: Enable/disable action buttons based on selection
         self.selection_btn_toggle(has_selection)
 
@@ -1180,7 +1126,7 @@ class ChemLab(QMainWindow):
             elements_table.setRowCount(len(reaction_elements))
             for row, elem_symbol in enumerate(sorted(reaction_elements)):
                 try:
-                    elem = element(elem_symbol)
+                    elem = get_element(elem_symbol)
                     elements_table.setItem(row, 0, QTableWidgetItem(elem_symbol))
                     elements_table.setItem(row, 1, QTableWidgetItem(elem.name))
                     elements_table.setItem(row, 2, QTableWidgetItem(str(elem.atomic_number)))
@@ -1489,56 +1435,6 @@ class ChemLab(QMainWindow):
         if self.view_overlay:
             self.view_overlay.raise_()
             self.view_overlay.setFocus()
-
-    def enable_reaction_selection_mode(self, calculate_dialog):
-        """Enable reaction selection mode for calculation dialog"""
-        self.in_calculation_selection_mode = True
-        self.calculate_dialog = calculate_dialog
-
-        # Show the cancel calculation button
-        self.cancel_calc_btn.setVisible(True)
-
-        # Disable Copy, View, Edit, Delete buttons
-        self.selection_btn_toggle()
-
-        # Keep pagination and search enabled
-        # (first_page_btn, prev_page_btn, page_entry, next_page_btn, last_page_btn, search_entry, clear_search_btn, filter_btn)
-
-        # Highlight the Reaction Entry group to indicate selection mode
-        self.reactions_group.setStyleSheet("""
-            QGroupBox {
-                border: 3px solid #0078d4;
-                border-radius: 5px;
-                font-weight: bold;
-            }
-            QGroupBox::title {
-                color: #0078d4;
-            }
-        """)
-
-        # Clear any existing selection
-        self.reactions_table.clearSelection()
-
-    def disable_reaction_selection_mode(self):
-        """Disable reaction selection mode and restore normal UI"""
-        self.in_calculation_selection_mode = False
-
-        # Hide the cancel calculation button
-        self.cancel_calc_btn.setVisible(False)
-
-        # Restore table selection behavior - selection will enable View/Edit/Delete if appropriate
-        self.on_reaction_selected()
-
-        # Restore normal styling on reaction group
-        self.reactions_group.setStyleSheet("")
-
-    def cancel_calculation_selection(self):
-        """Handle cancel button click during calculation selection mode"""
-        self.disable_reaction_selection_mode()
-
-        # Notify the calculate dialog that selection was canceled
-        if self.calculate_dialog:
-            self.calculate_dialog.on_selection_cancelled()
 
 
 def main():

@@ -8,13 +8,31 @@ import re
 from fractions import Fraction
 from functools import reduce
 from math import gcd, lcm
-
+from types import SimpleNamespace
 from PyQt6.QtCore import Qt
-from mendeleev import element
+from constants import (ARROWS, SUBSCRIPT_MAP, STATE_SYMBOL_PATTERN, SUBSCRIPT_DISPLAY_MAP,
+                        ARROW_MAP, STATE_NAMES, SUBSCRIPT_DIGITS, ELEMENTS_DATA)
 
-from constants import ARROWS, SUBSCRIPT_MAP, STATE_SYMBOL_PATTERN, SUBSCRIPT_DISPLAY_MAP, ARROW_MAP, STATE_NAMES, \
-    SUBSCRIPT_DIGITS
 
+def get_element(symbol: str):
+    """Get element data from ELEMENTS_DATA dictionary.
+
+    Returns a SimpleNamespace with name, atomic_number, atomic_weight, symbol
+    to match mendeleev's interface.
+
+    Raises ValueError if element is not found.
+    """
+
+    data = ELEMENTS_DATA.get(symbol)
+    if data:
+        return SimpleNamespace(
+            symbol=symbol,
+            name=data['name'],
+            atomic_number=data['atomic_number'],
+            atomic_weight=data['atomic_weight']
+        )
+    # Raise error for unknown elements so validation can catch them
+    raise ValueError(f"Unknown element: {symbol}")
 
 class ChemLabParser:
     """Handles reaction parsing, element extraction, and validation"""
@@ -109,7 +127,7 @@ class ChemLabParser:
 
             for elem_symbol, count in elements.items():
                 try:
-                    elem_data = element(elem_symbol)
+                    elem_data = get_element(elem_symbol)
                     atomic_mass = elem_data.atomic_weight
                     if atomic_mass:
                         total_mass += atomic_mass * count
@@ -133,7 +151,7 @@ class ChemLabParser:
             # Calculate mass contribution of each element
             for elem_symbol, count in elements.items():
                 try:
-                    elem_data = element(elem_symbol)
+                    elem_data = get_element(elem_symbol)
                     atomic_mass = elem_data.atomic_weight
                     if atomic_mass:
                         mass = atomic_mass * count
@@ -170,8 +188,9 @@ class ChemLabParser:
         if not reaction:
             return reaction
 
-        # Find arrow to split reactants and products
-        arrow_match = re.search(r'(->|→|⇌|⇋|↔|←)', reaction)
+        # Find arrow to split reactants and products (using ARROWS from constants)
+        arrow_pattern = '|'.join(re.escape(arrow) for arrow in ARROWS)
+        arrow_match = re.search(f'({arrow_pattern})', reaction)
         if not arrow_match:
             return reaction
 
@@ -244,8 +263,8 @@ class ChemLabParser:
         all_elements = set(reactant_elements + product_elements)
         for elem in all_elements:
             try:
-                element(elem)  # Test if element exists
-            except (ValueError, KeyError):
+                get_element(elem)  # Test if element exists
+            except (ValueError, KeyError, AttributeError):
                 invalid_elements.append(elem)
 
         if invalid_elements:
@@ -328,11 +347,6 @@ class ChemLabParser:
             clean_formula = re.sub(STATE_SYMBOL_PATTERN, '', formula)
             return state, clean_formula
         return '', formula
-
-    @staticmethod
-    def clean_formula(formula):
-        """Remove coefficients from formula"""
-        return re.sub(r'^\d+', '', formula)
 
     @staticmethod
     def auto_balance_reaction(reaction):
@@ -590,10 +604,6 @@ class ChemLabParser:
                 parts.append(f"{coeff}{comp_clean}")
         return ' + '.join(parts)
 
-    # ============================================================================
-    # PARSING UTILITY METHODS (moved from ChemLab)
-    # ============================================================================
-
     @staticmethod
     def normalize_formula(formula):
         """Normalize formula for lookup - remove coefficients, state symbols, convert Unicode subscripts to ASCII"""
@@ -722,7 +732,7 @@ class ChemLabParser:
 
     @staticmethod
     def load_elements_data(reaction_elements):
-        """Load element data from mendeleev for given symbols"""
+        """Load element data from ELEMENTS_DATA for given symbols"""
         elements_data = {}
         for elem_symbol in reaction_elements:
             elements_data[elem_symbol] = ChemLabParser._get_element_info(elem_symbol)
@@ -730,11 +740,11 @@ class ChemLabParser:
 
     @staticmethod
     def _get_element_info(elem_symbol):
-        """Get element info from mendeleev, return default if not found"""
+        """Get element info from ELEMENTS_DATA, return default if not found"""
         try:
-            elem = element(elem_symbol)
+            elem = get_element(elem_symbol)
             return {'name': elem.name, 'atomic_number': elem.atomic_number}
-        except (ValueError, KeyError):
+        except ValueError:
             return {'name': 'Unknown', 'atomic_number': 0}
 
     # ============================================================================
