@@ -7,7 +7,7 @@ import tkinter.font as tkfont
 import numexpr
 import sympy as sp
 import ttkbootstrap as tb
-from ttkbootstrap.constants import *
+from ttkbootstrap.constants import LEFT, DARK, SECONDARY, SUCCESS
 from ttkbootstrap.dialogs import Messagebox as Mb
 from ttkbootstrap_icons_bs import BootstrapIcon
 
@@ -847,13 +847,20 @@ class Calculator:
                 bootstyle=SECONDARY,
                 style="Converter.TButton",
                 # Removed fixed padding to allow the grid weight to control size
-                command=lambda x=text:
-                num_cmd(x) if x not in ('C', '←')
-                else clr_cmd() if x == 'C'
-                else back_cmd()
+                command=lambda x=text: self._handle_converter_button_click(x, clr_cmd, back_cmd, num_cmd)
             )
             btn.grid(column=col, row=row, sticky="nsew", padx=2, pady=2)
             frame.converter_buttons.append(btn)
+
+    @staticmethod
+    def _handle_converter_button_click(x, clr_cmd, back_cmd, num_cmd):
+        """Handle converter button clicks with clear conditional logic."""
+        if x not in ('C', '←'):
+            num_cmd(x)
+        elif x == 'C':
+            clr_cmd()
+        else:  # x == '←'
+            back_cmd()
 
     # --- Converter Implementations ---
 
@@ -911,9 +918,15 @@ class Calculator:
             frm, to = self.temp_from.get(), self.temp_to.get()
             if frm == to: self.temp_output_text.set(f"{v:.2f}"); return
             # To Celsius
-            c = v if frm == "°C" else (v - 32) * 5 / 9 if frm == "°F" else v - 273.15
+            if frm == "°C":
+                c = v
+            else:
+                c = (v - 32) * 5 / 9 if frm == "°F" else v - 273.15
             # From Celsius
-            res = c if to == "°C" else c * 9 / 5 + 32 if to == "°F" else c + 273.15
+            if to == "°C":
+                res = c
+            else:
+                res = c * 9 / 5 + 32 if to == "°F" else c + 273.15
             self.temp_output_text.set(f"{res:.2f}")
         except Exception as e:
             Mb.show_error("Error", str(e))
@@ -987,7 +1000,6 @@ class Calculator:
         frame.tkraise()
         self.header_label.config(text=title)
         if self.sidebar_open and not initial: self.toggle_sidebar()
-
 
 if __name__ == "__main__":
     root = tb.Window(themename="calculator")
