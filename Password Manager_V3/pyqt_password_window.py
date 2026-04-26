@@ -1,5 +1,3 @@
-import os
-
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
@@ -7,7 +5,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QApplication
 )
 
-from pyqt_constants import ICON_NAME
+from pyqt_constants import ICON_PATH
 from pyqt_helpers import apply_global_theme, show_info_dialog
 
 
@@ -17,7 +15,7 @@ class PasswordWindow(QDialog):
         self.passwords = passwords
         self.setWindowTitle("Stored Passwords")
         self.setFixedSize(600, 400)
-        self.setWindowIcon(QIcon(ICON_NAME) if os.path.exists(ICON_NAME) else QIcon())
+        self.setWindowIcon(QIcon(ICON_PATH))
 
         # Apply theme on creation
         self.apply_theme()

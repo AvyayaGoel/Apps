@@ -1,4 +1,3 @@
-import os
 import secrets
 import string
 
@@ -9,7 +8,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QCheckBox, QSpinBox,
 )
 
-from pyqt_constants import ICON_NAME
+from pyqt_constants import ICON_PATH
 from pyqt_helpers import apply_global_theme, PasswordValidator, get_password_strength_indicator
 
 
@@ -18,7 +17,7 @@ class PasswordGeneratorDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Password Generator")
         self.setFixedSize(350, 300)
-        self.setWindowIcon(QIcon(ICON_NAME) if os.path.exists(ICON_NAME) else QIcon())
+        self.setWindowIcon(QIcon(ICON_PATH))
         self.length_spin = None
         self.use_upper = None
         self.use_digits = None

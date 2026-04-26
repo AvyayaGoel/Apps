@@ -10,6 +10,22 @@ DATA_FILE = os.path.join(APP_DATA_DIR, "passwords.json")
 KEY_FILE = os.path.join(APP_DATA_DIR, "key.key")
 CONFIG_FILE = os.path.join(APP_DATA_DIR, "settings.json")
 
+
+def get_icon_path():
+    """Get the correct icon path for both development and packaged environments"""
+    # Check if running in PyInstaller environment
+    if getattr(sys, 'frozen', False):
+        # Running in PyInstaller bundle - use getattr to safely access _MEIPASS
+        meipass = getattr(sys, '_MEIPASS', None)
+        if meipass:
+            return os.path.join(meipass, ICON_NAME)
+        else:
+            # Fallback if _MEIPASS is not available
+            return ICON_NAME
+    else:
+        # Running in development environment
+        return ICON_NAME
+
 # Password validation constants
 PASSWORD_CONSTANTS = {
     'min_length': 8,
@@ -48,6 +64,8 @@ COMMON_WORDS = ['password', 'master', 'admin', 'user', 'login', 'secure']
 
 # UI Constants
 ICON_NAME = "icon.png"
+ICON_PATH = get_icon_path()
+print(ICON_PATH)
 MISSING_INF = "Missing Information"
 INCORRECT_M_P = "Current master password is incorrect!"
 CLOSE_BTN_STYLE = "background-color: #f44336; color: white; padding: 8px;"

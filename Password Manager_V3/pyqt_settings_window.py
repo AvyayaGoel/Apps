@@ -1,5 +1,3 @@
-import os
-
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout,
@@ -9,7 +7,7 @@ from PyQt6.QtWidgets import (
     QMessageBox
 )
 
-from pyqt_constants import ICON_NAME, INCORRECT_M_P, CLOSE_BTN_STYLE, SAVE_BTN_STYLE, SETUP_MASTER_PWD, \
+from pyqt_constants import ICON_PATH, INCORRECT_M_P, CLOSE_BTN_STYLE, SAVE_BTN_STYLE, SETUP_MASTER_PWD, \
     CHANGE_MASTER_PWD
 from pyqt_helpers import show_info_dialog, show_error_dialog, apply_global_theme, hash_password, PasswordValidator, \
     verify_current_master_password, setup_new_master_password, setup_master_password_validation_labels
@@ -21,7 +19,7 @@ class SettingsWindow(QDialog):
         self.manager = manager
         self.setWindowTitle("Settings")
         self.setFixedSize(550, 400)
-        self.setWindowIcon(QIcon(ICON_NAME) if os.path.exists(ICON_NAME) else QIcon()),
+        self.setWindowIcon(QIcon(ICON_PATH))
         self.disable_master = None
         self.theme_combo = None
         self.auto_lock_enabled = None

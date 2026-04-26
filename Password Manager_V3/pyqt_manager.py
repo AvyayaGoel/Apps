@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from cryptography.fernet import Fernet
 
-from pyqt_constants import DATA_FILE, KEY_FILE, CONFIG_FILE, APP_DATA_DIR, ICON_NAME, MISSING_INF
+from pyqt_constants import DATA_FILE, KEY_FILE, CONFIG_FILE, APP_DATA_DIR, ICON_PATH, MISSING_INF
 from pyqt_helpers import create_styled_button, create_styled_input, show_info_dialog, show_error_dialog, \
     show_warning_dialog, hash_password, apply_global_theme, PasswordValidator
 from pyqt_password_generator import PasswordGeneratorDialog
@@ -63,9 +63,7 @@ class SimplePasswordManager(QMainWindow):
         self.setGeometry(100, 100, 900, 350)
         self.setMinimumSize(600, 300)
 
-        # Set window icon
-        if os.path.exists(ICON_NAME):
-            self.setWindowIcon(QIcon(ICON_NAME))
+        self.setWindowIcon(QIcon(ICON_PATH))
 
         # Initialize resize worker
         self.resize_worker = None
@@ -798,11 +796,6 @@ class SimplePasswordManager(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")  # Modern look
-
-    # Set application icon
-    if os.path.exists(ICON_NAME):
-        app.setWindowIcon(QIcon(ICON_NAME))
-
     window = SimplePasswordManager()
     window.show()
 
