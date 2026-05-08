@@ -2,18 +2,19 @@
 Main Window - Calculator V3 Application Window.
 """
 
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QStackedWidget, QFrame,
     QScrollArea, QGraphicsOpacityEffect
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QFont
 
 from calculator_tab import CalculatorTab
-from converter_tab import SingleConverter
-from conversions import ConversionCategory, get_manager
 from constants_calculator import FONT, COLOR_INACTIVE, TITLE_STANDARD_CALC, TITLE_SCIENTIFIC_CALC
+from conversions import ConversionCategory, get_manager
+from converter_tab import SingleConverter
+
 
 class CollapsibleSidebar(QFrame):
     """Collapsible sidebar with scrollable content and icon-only collapsed mode."""
@@ -26,8 +27,10 @@ class CollapsibleSidebar(QFrame):
         self.sidebar_buttons = []
         self.section_labels = []
         self.sidebar_title = None
+        self._label_opacity_effects = []
         self.setFixedWidth(self.expanded_width)
         self._setup_ui()
+        self._setup_animations()
 
     def _setup_ui(self):
         # Main layout
@@ -97,10 +100,122 @@ class CollapsibleSidebar(QFrame):
         self.scroll.setWidget(self.content_widget)
         self.main_layout.addWidget(self.scroll)
 
+    def _setup_animations(self):
+        """Setup animations for smooth transitions."""
+        # Width animation
+        self._width_animation = QPropertyAnimation(self, b"maximumWidth")
+        self._width_animation.setDuration(300)
+        self._width_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        self._min_width_animation = QPropertyAnimation(self, b"minimumWidth")
+        self._min_width_animation.setDuration(300)
+        self._min_width_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
     def toggle(self):
-        """Toggle sidebar expanded/collapsed state."""
+        """Toggle sidebar expanded/collapsed state with animation."""
         self.is_expanded = not self.is_expanded
-        self._update_state()
+        print(f"[SIDEBAR] Toggle: is_expanded={self.is_expanded}")
+
+        target_width = self.expanded_width if self.is_expanded else self.collapsed_width
+
+        # Animate width
+        self._width_animation.stop()
+        self._width_animation.setStartValue(self.width())
+        self._width_animation.setEndValue(target_width)
+
+        self._min_width_animation.stop()
+        self._min_width_animation.setStartValue(self.width())
+        self._min_width_animation.setEndValue(target_width)
+
+        # Start width animations
+        self._width_animation.start()
+        self._min_width_animation.start()
+
+        # Hide section labels immediately when collapsing
+        if not self.is_expanded:
+            for label in self.section_labels:
+                label.hide()
+                print("[SIDEBAR] Hid section label immediately")
+
+        # Animate labels fade in/out
+        self._animate_labels()
+
+        # Update toggle button icon
+        self.toggle_btn.setText("☰" if self.is_expanded else "→")
+
+        # Update content layout margins after animation
+        if self.is_expanded:
+            self.content_layout.setContentsMargins(10, 10, 10, 10)
+        else:
+            self.content_layout.setContentsMargins(5, 10, 5, 10)
+
+        # Update button expanded states
+        for btn in self.sidebar_buttons:
+            if isinstance(btn, SidebarButton):
+                text = btn.text_label.text() if hasattr(btn, 'text_label') else 'button'
+                print(f"[SIDEBAR] Calling animate_expanded({self.is_expanded}) on {text}")
+                btn.animate_expanded(self.is_expanded)
+
+    def _animate_labels(self):
+        """Animate label opacity for fade effect."""
+        if not self._label_opacity_effects:
+            self._create_label_opacity_effects()
+
+        # Match creation order: sidebar_title first, then section_labels
+        all_labels = [self.sidebar_title] + self.section_labels if self.sidebar_title else self.section_labels
+        print(f"[SIDEBAR] Animating {len(all_labels)} labels, is_expanded={self.is_expanded}")
+
+        for i, (effect, label) in enumerate(zip(self._label_opacity_effects, all_labels)):
+            if label is None:
+                continue
+
+            label_text = label.text() if hasattr(label, 'text') else f'label_{i}'
+            is_section = label in self.section_labels
+            print(f"[SIDEBAR] Label '{label_text}': section_label={is_section}")
+
+            opacity_anim = QPropertyAnimation(effect, b"opacity")
+            opacity_anim.setDuration(250)
+            opacity_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+
+            if self.is_expanded:
+                # Fade in
+                opacity_anim.setStartValue(effect.opacity())
+                opacity_anim.setEndValue(1.0)
+                label.show()
+                print(f"[SIDEBAR]   -> Fading in '{label_text}' from {effect.opacity()}")
+            else:
+                # Fade out
+                opacity_anim.setStartValue(effect.opacity())
+                opacity_anim.setEndValue(0.0)
+                # Only hide section labels (not sidebar title)
+                if label in self.section_labels:
+                    def make_hide_handler(l, name=label_text):
+                        def hide_handler():
+                            l.hide()
+                            print(f"[SIDEBAR] Hidden label '{name}' after animation")
+
+                        return hide_handler
+
+                    opacity_anim.finished.connect(make_hide_handler(label))
+                    print(f"[SIDEBAR]   -> Fading out '{label_text}' from {effect.opacity()}, will hide after")
+
+            opacity_anim.start()
+
+    def _create_label_opacity_effects(self):
+        """Create opacity effects for all labels."""
+        self._label_opacity_effects = []
+
+        # Create for sidebar title
+        if self.sidebar_title:
+            effect = QGraphicsOpacityEffect(self.sidebar_title)
+            self.sidebar_title.setGraphicsEffect(effect)
+            self._label_opacity_effects.append(effect)
+
+        # Create for section labels
+        for label in self.section_labels:
+            effect = QGraphicsOpacityEffect(label)
+            label.setGraphicsEffect(effect)
+            self._label_opacity_effects.append(effect)
 
     def _update_state(self):
         """Update sidebar visual state based on is_expanded."""
@@ -136,6 +251,13 @@ class SidebarButton(QPushButton):
         self.label_text = label
         self._active = False
         self._expanded = True
+        # UI elements (initialized in _setup_ui)
+        self.icon_label = None
+        self.text_label = None
+        self.main_layout = None
+        # Animation attributes
+        self._text_opacity_effect = None
+        self._text_opacity_anim = None
         self._setup_ui()
 
     def _setup_ui(self):
@@ -189,6 +311,61 @@ class SidebarButton(QPushButton):
             self.icon_label.setFont(QFont(FONT, 24))
         self._update_style()
 
+    def animate_expanded(self, expanded: bool):
+        """Animate button transition between expanded/collapsed states."""
+        self._expanded = expanded
+        btn_text = self.text_label.text() if self.text_label is not None else 'btn'
+        print(f"[BUTTON {btn_text}] animate_expanded({expanded})")
+
+        # Create opacity effect if needed
+        if self._text_opacity_effect is None:
+            from PyQt6.QtWidgets import QGraphicsOpacityEffect
+            self._text_opacity_effect = QGraphicsOpacityEffect(self.text_label)
+            if self.text_label:
+                self.text_label.setGraphicsEffect(self._text_opacity_effect)
+
+        # Stop and delete old animation if running
+        if self._text_opacity_anim is not None:
+            self._text_opacity_anim.stop()
+            self._text_opacity_anim.deleteLater()
+
+        # Create new animation (avoiding disconnect issues)
+        self._text_opacity_anim = QPropertyAnimation(self._text_opacity_effect, b"opacity")
+        self._text_opacity_anim.setDuration(250)
+        self._text_opacity_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+
+        # Get current opacity as start value
+        current_opacity = self._text_opacity_effect.opacity()
+
+        if expanded:
+            # Show label and fade in
+            if self.text_label:
+                self.text_label.show()
+            self.main_layout.setContentsMargins(10, 5, 15, 5)
+            self.main_layout.setSpacing(12)
+            self._text_opacity_anim.setStartValue(current_opacity)
+            self._text_opacity_anim.setEndValue(1.0)
+        else:
+            # Fade out and hide when done
+            self.main_layout.setContentsMargins(0, 0, 0, 0)
+            self.main_layout.setSpacing(0)
+            self._text_opacity_anim.setStartValue(current_opacity)
+            self._text_opacity_anim.setEndValue(0.0)
+
+            def hide_label():
+                if self.text_label:
+                    self.text_label.hide()
+
+            self._text_opacity_anim.finished.connect(hide_label)
+
+        self._text_opacity_anim.start()
+
+        # Set icon font size immediately (font animation doesn't work well in Qt)
+        target_size = 18 if expanded else 24
+        self.icon_label.setFont(QFont(FONT, target_size))
+
+        self._update_style()
+
     def _update_style(self):
         if self._active:
             self.setStyleSheet("""
@@ -226,7 +403,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Calculator V3")
-        self.setMinimumSize(900, 650)
+        self.setMinimumSize(700, 450)
         self.resize(1000, 700)
 
         self._setup_ui()
@@ -300,12 +477,14 @@ class MainWindow(QMainWindow):
         sidebar.add_widget(conv_label)
 
         # Individual category buttons with icons
-        self.sidebar_buttons = [self.calc_btn, self.sci_btn]  # Start with calculators
+        # Start with calculators
+        self.sidebar_buttons = [self.calc_btn, self.sci_btn]
         manager = get_manager()
         categories = manager.get_categories()
 
         # Category icons mapping
         icons = {
+            ConversionCategory.CURRENCY: "💲",
             ConversionCategory.LENGTH: "📏",
             ConversionCategory.AREA: "📐",
             ConversionCategory.VOLUME: "🧪",
@@ -352,26 +531,16 @@ class MainWindow(QMainWindow):
         return sidebar
 
     def _on_sidebar_toggled(self):
-        """Handle sidebar toggle - update button layouts."""
-        # Toggle the sidebar state
+        """Handle sidebar toggle - sidebar.toggle() handles all animations."""
+        # The sidebar.toggle() method handles width animation, label fading,
+        # and button animations automatically
         self.sidebar.toggle()
 
-        # Update all buttons to expanded/collapsed state
-        expanded = self.sidebar.is_expanded
-        if expanded:
+        # Update title text only (animation is handled by sidebar)
+        if self.sidebar.is_expanded:
             self.sidebar_title.setText("⚡ Calc V3")
-            # Show section labels
-            for label in self.sidebar.section_labels:
-                label.show()
         else:
-            self.sidebar_title.setText("⚡")
-            # Hide section labels
-            for label in self.sidebar.section_labels:
-                label.hide()
-
-        # Update all buttons
-        for btn in self.sidebar.sidebar_buttons:
-            btn.set_expanded(expanded)
+            self.sidebar_title.setText("")
 
     def _create_content(self) -> QFrame:
         """Create the main content area."""
@@ -415,7 +584,7 @@ class MainWindow(QMainWindow):
         self.scientific_tab = CalculatorTab(mode="scientific")
         self.stack.addWidget(self.scientific_tab)
 
-        # Individual converter tabs for each category (indices 2-13)
+        # Individual converter tabs for each category (indices 3-14)
         self.converter_tabs = {}
         manager = get_manager()
         categories = manager.get_categories()
@@ -471,10 +640,6 @@ class MainWindow(QMainWindow):
 
         self._fade_out.finished.connect(do_switch)
         self._fade_out.start()
-
-        # Close sidebar on mobile/tablet view if needed
-        if self.width() < 800 and self.sidebar.is_expanded:
-            self.sidebar.toggle()
 
     def _apply_styles(self):
         """Apply global styles to the application."""

@@ -17,11 +17,12 @@ Requirements:
     numexpr
 """
 
+import os
 import sys
-from PyQt6.QtWidgets import QApplication
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QIcon
-import os
+from PyQt6.QtWidgets import QApplication
 
 
 def get_resource_path(filename: str) -> str:
