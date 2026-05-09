@@ -1,0 +1,1220 @@
+"""
+Periodic Table Data Module
+Contains comprehensive element data including isotopes, physical states, and colors.
+"""
+
+from typing import Dict, Tuple
+
+GROUP_1 = "Group 1"
+GROUP_2 = "Group 2"
+GROUP_3 = "Group 3"
+GROUP_4 = "Group 4"
+GROUP_5 = "Group 5"
+GROUP_6 = "Group 6"
+GROUP_7 = "Group 7"
+GROUP_8 = "Group 8"
+GROUP_9 = "Group 9"
+GROUP_10 = "Group 10"
+GROUP_11 = "Group 11"
+GROUP_12 = "Group 12"
+GROUP_13 = "Group 13"
+GROUP_14 = "Group 14"
+GROUP_15 = "Group 15"
+GROUP_16 = "Group 16"
+GROUP_17 = "Group 17"
+GROUP_18 = "Group 18"
+# Complete Periodic Table Data - All 118 Elements
+elements_data: Dict[Tuple[int, int], dict] = {
+    # Period 1
+    (0, 0): {
+        "symbol": "H", "name": "Hydrogen", "atomic_number": 1, "mass_number": 1.008,
+        "stability": "Stable", "valence_electrons": (-1, +1),
+        "category": "nonmetal", "group": GROUP_1, "period": 1,
+        "discovery_year": 1766, "discovered_by": "Henry Cavendish",
+        "electron_configuration": "1s¹", "electronegativity": 2.20,
+        "melting_point": 14.01, "boiling_point": 20.28,
+        "density": 0.00008988, "state_at_room_temp": "gas",
+        "colors": {"gas": "#E8F5E9", "liquid": "#B3E5FC", "solid": "#FFFFFF"},
+        "isotopes": {
+            "¹H": {"mass": 1.007825, "abundance": 99.985, "neutrons": 0},
+            "²H": {"mass": 2.014102, "abundance": 0.015, "neutrons": 1},
+            "³H": {"mass": 3.016049, "abundance": 0.0, "neutrons": 2, "half_life": "12.32 years"},
+            "⁴H": {"mass": 4.02781, "abundance": 0.0, "neutrons": 3, "half_life": "139 yoctoseconds"},
+            "⁵H": {"mass": 5.03531, "abundance": 0.0, "neutrons": 4, "half_life": "0.8 yoctoseconds"},
+            "⁶H": {"mass": 6.04494, "abundance": 0.0, "neutrons": 5, "half_life": "0.29 yoctoseconds"},
+            "⁷H": {"mass": 7.05275, "abundance": 0.0, "neutrons": 6, "half_life": "0.023 yoctoseconds"}
+        },
+        "applications": ["Fuel", "Rocket propellant", "Ammonia production", "Welding"],
+        "description": "The lightest and most abundant element in the universe. Hydrogen is a colorless, odorless, highly flammable gas that forms water when burned. It's the primary building block of stars and plays a crucial role in the proton-proton chain reaction that powers the Sun. On Earth, it's used extensively in the chemical industry for ammonia synthesis and petroleum refining."
+    },
+    (0, 17): {
+        "symbol": "He", "name": "Helium", "atomic_number": 2, "mass_number": 4.0026,
+        "stability": "Stable", "valence_electrons": 0,
+        "category": "noble_gas", "group": GROUP_18, "period": 1,
+        "discovery_year": 1868, "discovered_by": "Pierre Janssen",
+        "electron_configuration": "1s²", "electronegativity": None,
+        "melting_point": None, "boiling_point": 4.22,
+        "density": 0.0001785, "state_at_room_temp": "gas",
+        "colors": {"gas": "#FFF3E0", "liquid": "#E3F2FD", "solid": "#FFFFFF"},
+        "isotopes": {
+            "³He": {"mass": 3.016029, "abundance": 0.000137, "neutrons": 1},
+            "⁴He": {"mass": 4.002602, "abundance": 99.999863, "neutrons": 2},
+            "⁵He": {"mass": 5.012220, "abundance": 0.0, "neutrons": 3, "half_life": "0.7 yoctoseconds"},
+            "⁶He": {"mass": 6.018889, "abundance": 0.0, "neutrons": 4, "half_life": "0.8 seconds"},
+            "⁷He": {"mass": 7.028030, "abundance": 0.0, "neutrons": 5, "half_life": "2.6 yoctoseconds"},
+            "⁸He": {"mass": 8.033922, "abundance": 0.0, "neutrons": 6, "half_life": "0.119 seconds"},
+            "⁹He": {"mass": 9.04395, "abundance": 0.0, "neutrons": 7, "half_life": "0.5 yoctoseconds"},
+            "¹⁰He": {"mass": 10.0524, "abundance": 0.0, "neutrons": 8, "half_life": "0.27 yoctoseconds"}
+        },
+        "applications": ["Balloons", "Cryogenics", "MRI cooling", "Leak detection"],
+        "description": "Second most abundant element in the universe, non-reactive noble gas. Helium was first detected in the sun's spectrum before being found on Earth. It's completely inert and has the lowest boiling point of all elements, making it essential for cryogenic applications. Its unique properties make it indispensable for cooling superconducting magnets in MRI machines and particle accelerators."
+    },
+    # Period 2
+    (1, 0): {
+        "symbol": "Li", "name": "Lithium", "atomic_number": 3, "mass_number": 6.94,
+        "stability": "Stable", "valence_electrons": +1,
+        "category": "alkali_metal", "group": GROUP_1, "period": 2,
+        "discovery_year": 1817, "discovered_by": "Johan August Arfwedson",
+        "electron_configuration": "[He] 2s¹", "electronegativity": 0.98,
+        "melting_point": 453.65, "boiling_point": 1603,
+        "density": 0.534, "state_at_room_temp": "solid",
+        "colors": {"solid": "#E8EAF6", "liquid": "#C5CAE9"},
+        "isotopes": {
+            "⁶Li": {"mass": 6.015122, "abundance": 7.59, "neutrons": 3},
+            "⁷Li": {"mass": 7.016004, "abundance": 92.41, "neutrons": 4},
+            "⁸Li": {"mass": 8.022487, "abundance": 0.0, "neutrons": 5, "half_life": "0.84 seconds"},
+            "⁹Li": {"mass": 9.02679, "abundance": 0.0, "neutrons": 6, "half_life": "0.178 seconds"},
+            "¹¹Li": {"mass": 11.043798, "abundance": 0.0, "neutrons": 8, "half_life": "0.0086 seconds"},
+            "¹²Li": {"mass": 12.05377, "abundance": 0.0, "neutrons": 9, "half_life": "0.01 milliseconds"}
+        },
+        "applications": ["Batteries", "Mood stabilizers", "Glass/ceramics", "Lubricants"],
+        "description": "Lightest metal, highly reactive alkali metal used in rechargeable batteries. Lithium is so soft it can be cut with a knife and so light it floats on water. It's crucial for modern technology, powering everything from smartphones to electric vehicles. In medicine, lithium carbonate is a mood stabilizer for bipolar disorder. The metal also has important applications in nuclear physics and air purification."
+    },
+    (1, 1): {
+        "symbol": "Be", "name": "Beryllium", "atomic_number": 4, "mass_number": 9.0122,
+        "stability": "Stable", "valence_electrons": +2,
+        "category": "alkaline_earth", "group": GROUP_2, "period": 2,
+        "discovery_year": 1798, "discovered_by": "Louis-Nicolas Vauquelin",
+        "electron_configuration": "[He] 2s²", "electronegativity": 1.57,
+        "melting_point": 1560, "boiling_point": 2742,
+        "density": 1.848, "state_at_room_temp": "solid",
+        "colors": {"solid": "#E0E0E0", "liquid": "#BDBDBD"},
+        "isotopes": {
+            "⁹Be": {"mass": 9.012182, "abundance": 100, "neutrons": 5},
+            "¹⁰Be": {"mass": 10.013534, "abundance": 0.0, "neutrons": 6, "half_life": "1.39 million years"},
+            "¹¹Be": {"mass": 11.021658, "abundance": 0.0, "neutrons": 7, "half_life": "13.8 seconds"},
+            "¹²Be": {"mass": 12.026922, "abundance": 0.0, "neutrons": 8, "half_life": "0.021 seconds"},
+            "¹³Be": {"mass": 13.03569, "abundance": 0.0, "neutrons": 9, "half_life": "0.001 seconds"},
+            "¹⁴Be": {"mass": 14.04289, "abundance": 0.0, "neutrons": 10, "half_life": "0.0045 seconds"}
+        },
+        "applications": ["Aerospace components", "X-ray windows", "Nuclear reactors", "Alloys"],
+        "description": "Lightweight, stiff metal used in aerospace and nuclear applications. Beryllium has one of the highest melting points of light metals and is completely transparent to X-rays. Its combination of low density and high strength makes it ideal for aircraft, satellites, and spacecraft. Despite its usefulness, beryllium is toxic and requires careful handling. It's also used in nuclear reactors as a neutron moderator and reflector."
+    },
+    (1, 12): {
+        "symbol": "B", "name": "Boron", "atomic_number": 5, "mass_number": 10.81,
+        "stability": "Stable", "valence_electrons": (-3, +3),
+        "category": "metalloid", "group": "Group 13", "period": 2,
+        "discovery_year": 1808, "discovered_by": "Louis-Joseph Gay-Lussac, Louis-Jacques Thenard",
+        "electron_configuration": "[He] 2s² 2p¹", "electronegativity": 2.04,
+        "melting_point": 2349, "boiling_point": 4200,
+        "density": 2.34, "state_at_room_temp": "solid",
+        "colors": {"solid": "#3E2723", "liquid": "#5D4037"},
+        "isotopes": {
+            "¹⁰B": {"mass": 10.012937, "abundance": 19.9, "neutrons": 5},
+            "¹¹B": {"mass": 11.009305, "abundance": 80.1, "neutrons": 6},
+            "⁸B": {"mass": 8.024607, "abundance": 0.0, "neutrons": 3, "half_life": "0.77 seconds"},
+            "¹²B": {"mass": 12.014352, "abundance": 0.0, "neutrons": 7, "half_life": "0.0202 seconds"},
+            "¹³B": {"mass": 13.017780, "abundance": 0.0, "neutrons": 8, "half_life": "0.017 seconds"}
+        },
+        "applications": ["Glass/fiberglass", "Semiconductors", "Neutron capture", "Fertilizers"],
+        "description": "Essential for plant growth, used in borosilicate glass and semiconductors. Boron is a versatile element that exists in several allotropes and forms strong covalent bonds. It's crucial for plant cell walls and has applications ranging from heat-resistant glass to neutron-absorbing control rods in nuclear reactors. Boron compounds are also used in insecticides, antiseptics, and as doping agents in semiconductors."
+    },
+    (1, 13): {
+        "symbol": "C", "name": "Carbon", "atomic_number": 6, "mass_number": 12.011,
+        "stability": "Stable", "valence_electrons": (+2, +4),
+        "category": "nonmetal", "group": GROUP_14, "period": 2,
+        "discovery_year": -3750, "discovered_by": "Ancient Egyptians",
+        "electron_configuration": "[He] 2s² 2p²", "electronegativity": 2.55,
+        "melting_point": 3550, "boiling_point": 4027,
+        "density": 2.267, "state_at_room_temp": "solid",
+        "allotropes": ["Diamond", "Graphite", "Graphene", "Fullerene", "Carbon nanotube"],
+        "colors": {"solid": "#212121", "liquid": "#424242"},
+        "isotopes": {
+            "¹²C": {"mass": 12.000000, "abundance": 98.93, "neutrons": 6},
+            "¹³C": {"mass": 13.003355, "abundance": 1.07, "neutrons": 7},
+            "¹⁴C": {"mass": 14.003241, "abundance": 0.0, "neutrons": 8, "half_life": "5730 years"},
+            "¹¹C": {"mass": 11.011433, "abundance": 0.0, "neutrons": 5, "half_life": "20.4 minutes"},
+            "¹⁵C": {"mass": 15.010599, "abundance": 0.0, "neutrons": 9, "half_life": "2.5 seconds"},
+            "¹⁶C": {"mass": 16.014701, "abundance": 0.0, "neutrons": 10, "half_life": "0.747 seconds"}
+        },
+        "applications": ["Steel production", "Diamonds", "Plastics", "Life itself"],
+        "description": "Basis of all organic life, exists as diamond, graphite, and other forms. Carbon is unique in its ability to form stable chains and rings with itself, creating the vast diversity of organic molecules. Diamond is the hardest known natural material, while graphite is soft enough to be used in pencils. Carbon nanotubes and graphene have extraordinary strength and electrical properties. The radioactive isotope carbon-14 is essential for radiocarbon dating archaeological artifacts."
+    },
+    (1, 14): {
+        "symbol": "N", "name": "Nitrogen", "atomic_number": 7, "mass_number": 14.007,
+        "stability": "Stable", "valence_electrons": (-3, -2, -1, +1, +2, +3, +4, +5),
+        "category": "nonmetal", "group": GROUP_15, "period": 2,
+        "discovery_year": 1772, "discovered_by": "Daniel Rutherford",
+        "electron_configuration": "[He] 2s² 2p³", "electronegativity": 3.04,
+        "melting_point": 63.15, "boiling_point": 77.36,
+        "density": 0.0012506, "state_at_room_temp": "gas",
+        "colors": {"gas": "#E3F2FD", "liquid": "#BBDEFB", "solid": "#90CAF9"},
+        "isotopes": {
+            "¹⁴N": {"mass": 14.003074, "abundance": 99.634, "neutrons": 7},
+            "¹⁵N": {"mass": 15.000109, "abundance": 0.366, "neutrons": 8},
+            "¹³N": {"mass": 13.005739, "abundance": 0.0, "neutrons": 6, "half_life": "9.97 minutes"},
+            "¹⁶N": {"mass": 16.022587, "abundance": 0.0, "neutrons": 9, "half_life": "7.13 seconds"},
+            "¹⁷N": {"mass": 17.01809, "abundance": 0.0, "neutrons": 10, "half_life": "4.17 seconds"}
+        },
+        "applications": ["Fertilizers", "Explosives", "Cryogenics", "Food preservation"],
+        "description": "Makes up 78% of Earth's atmosphere, essential for proteins and DNA. Nitrogen is a relatively inert gas at room temperature but becomes highly reactive under special conditions. It's crucial for all living organisms as a component of amino acids, nucleic acids, and ATP. Industrial nitrogen fixation through the Haber-Bosch process produces ammonia for fertilizers, dramatically increasing global food production. Liquid nitrogen is widely used for cryogenic applications."
+    },
+    (1, 15): {
+        "symbol": "O", "name": "Oxygen", "atomic_number": 8, "mass_number": 15.999,
+        "stability": "Stable", "valence_electrons": -2,
+        "category": "nonmetal", "group": GROUP_16, "period": 2,
+        "discovery_year": 1774, "discovered_by": "Joseph Priestley, Carl Wilhelm Scheele",
+        "electron_configuration": "[He] 2s² 2p⁴", "electronegativity": 3.44,
+        "melting_point": 54.36, "boiling_point": 90.20,
+        "density": 0.001429, "state_at_room_temp": "gas",
+        "colors": {"gas": "#E8F5E9", "liquid": "#B3E5FC", "solid": "#81D4FA"},
+        "isotopes": {
+            "¹⁶O": {"mass": 15.994915, "abundance": 99.757, "neutrons": 8},
+            "¹⁷O": {"mass": 16.999132, "abundance": 0.038, "neutrons": 9},
+            "¹⁸O": {"mass": 17.999159, "abundance": 0.205, "neutrons": 10},
+            "¹⁵O": {"mass": 15.003065, "abundance": 0.0, "neutrons": 7, "half_life": "122.24 seconds"},
+            "¹⁴O": {"mass": 14.008596, "abundance": 0.0, "neutrons": 6, "half_life": "70.6 seconds"},
+            "¹⁹O": {"mass": 19.003579, "abundance": 0.0, "neutrons": 11, "half_life": "26.5 seconds"},
+            "²⁰O": {"mass": 20.004077, "abundance": 0.0, "neutrons": 12, "half_life": "13.5 seconds"}
+        },
+        "applications": ["Respiration", "Steel production", "Medical", "Rocket fuel"],
+        "description": "Essential for life, makes up 21% of Earth's atmosphere. Oxygen is the most abundant element in Earth's crust and is crucial for cellular respiration in most living organisms. It exists as O₂ gas in the atmosphere and forms ozone (O₃) in the stratosphere, protecting life from harmful UV radiation. Oxygen's high electronegativity and reactivity make it essential for combustion and oxidation reactions. Liquid oxygen is used as an oxidizer in rocket propulsion."
+    },
+    (1, 16): {
+        "symbol": "F", "name": "Fluorine", "atomic_number": 9, "mass_number": 18.998,
+        "stability": "Stable", "valence_electrons": (-1, +1),
+        "category": "halogen", "group": GROUP_17, "period": 2,
+        "discovery_year": 1886, "discovered_by": "Henri Moissan",
+        "electron_configuration": "[He] 2s² 2p⁵", "electronegativity": 3.98,
+        "melting_point": 53.53, "boiling_point": 85.03,
+        "density": 0.001696, "state_at_room_temp": "gas",
+        "colors": {"gas": "#E8F5E9", "liquid": "#FFF9C4", "solid": "#FFF59D"},
+        "isotopes": {
+            "¹⁹F": {"mass": 18.998403, "abundance": 100, "neutrons": 10},
+            "¹⁸F": {"mass": 17.999161, "abundance": 0.0, "neutrons": 9, "half_life": "109.8 minutes"},
+            "²⁰F": {"mass": 19.999981, "abundance": 0.0, "neutrons": 11, "half_life": "11.07 seconds"},
+            "²¹F": {"mass": 20.999949, "abundance": 0.0, "neutrons": 12, "half_life": "4.16 seconds"}
+        },
+        "applications": ["Toothpaste", "Teflon", "Uranium enrichment", "Pharmaceuticals"],
+        "description": "Most electronegative element, highly reactive yellowish gas. Fluorine is so reactive that it can form compounds with noble gases under extreme conditions. It's essential for dental health as fluoride in toothpaste and water fluoridation. Teflon (PTFE), one of the most slippery materials known, is a fluoropolymer. Fluorinated compounds are used in refrigerants and as propellants. In nuclear fuel processing, uranium hexafluoride is used for isotope enrichment."
+    },
+    (1, 17): {
+        "symbol": "Ne", "name": "Neon", "atomic_number": 10, "mass_number": 20.180,
+        "stability": "Stable", "valence_electrons": 0,
+        "category": "noble_gas", "group": GROUP_18, "period": 2,
+        "discovery_year": 1898, "discovered_by": "William Ramsay, Morris Travers",
+        "electron_configuration": "[He] 2s² 2p⁶", "electronegativity": None,
+        "melting_point": 24.56, "boiling_point": 27.07,
+        "density": 0.0008999, "state_at_room_temp": "gas",
+        "colors": {"gas": "#FFEBEE", "liquid": "#FFCDD2", "solid": "#EF9A9A"},
+        "isotopes": {
+            "²⁰Ne": {"mass": 19.992440, "abundance": 90.48, "neutrons": 10},
+            "²¹Ne": {"mass": 20.993847, "abundance": 0.27, "neutrons": 11},
+            "²²Ne": {"mass": 21.991386, "abundance": 9.25, "neutrons": 12},
+            "¹⁹Ne": {"mass": 19.001880, "abundance": 0.0, "neutrons": 9, "half_life": "17.22 seconds"},
+            "²³Ne": {"mass": 22.994466, "abundance": 0.0, "neutrons": 13, "half_life": "37.6 seconds"},
+            "²⁴Ne": {"mass": 23.993614, "abundance": 0.0, "neutrons": 14, "half_life": "3.38 minutes"}
+        },
+        "applications": ["Neon signs", "Cryogenics", "Lighting", "High-voltage indicators"],
+        "description": "Colorless noble gas that produces a reddish-orange glow in discharge tubes. Neon was discovered through spectroscopic analysis of sunlight. It's completely inert and has the narrowest liquid range of any element (2.5 K). Neon signs use the characteristic orange-red glow, while other colors are produced by different gas mixtures or colored glass tubes. Liquid neon is an excellent cryogenic refrigerant, second only to liquid helium in cooling capacity."
+    },
+    # Period 3
+    (2, 0): {
+        "symbol": "Na", "name": "Sodium", "atomic_number": 11, "mass_number": 22.990,
+        "stability": "Stable", "valence_electrons": 1,
+        "category": "alkali_metal", "group": GROUP_1, "period": 3,
+        "discovery_year": 1807, "discovered_by": "Humphry Davy",
+        "electron_configuration": "[Ne] 3s¹", "electronegativity": 0.93,
+        "melting_point": 370.87, "boiling_point": 1156,
+        "density": 0.971, "state_at_room_temp": "solid",
+        "colors": {"solid": "#E8EAF6", "liquid": "#9FA8DA"},
+        "isotopes": {
+            "²³Na": {"mass": 22.989769, "abundance": 100, "neutrons": 12},
+            "²²Na": {"mass": 21.994437, "abundance": 0.0, "neutrons": 11, "half_life": "2.6 years"},
+            "²¹Na": {"mass": 20.997655, "abundance": 0.0, "neutrons": 10, "half_life": "22.5 seconds"},
+            "²⁴Na": {"mass": 23.991261, "abundance": 0.0, "neutrons": 13, "half_life": "14.96 hours"},
+            "²⁵Na": {"mass": 24.989957, "abundance": 0.0, "neutrons": 14, "half_life": "59.1 seconds"}
+        },
+        "applications": ["Table salt", "Street lights", "Coolant", "Soap"],
+        "description": "Soft, highly reactive metal, essential for nerve function. Sodium is so reactive it must be stored under oil to prevent reaction with air. It's crucial for maintaining fluid balance and nerve impulse transmission in living organisms. Sodium vapor produces the characteristic yellow glow in street lights. In industry, sodium is used as a heat transfer fluid in nuclear reactors and as a reducing agent in organic synthesis. Table salt (sodium chloride) has been used as food preservative for millennia."
+    },
+    (2, 1): {
+        "symbol": "Mg", "name": "Magnesium", "atomic_number": 12, "mass_number": 24.305,
+        "stability": "Stable", "valence_electrons": 2,
+        "category": "alkaline_earth", "group": GROUP_2, "period": 3,
+        "discovery_year": 1808, "discovered_by": "Humphry Davy",
+        "electron_configuration": "[Ne] 3s²", "electronegativity": 1.31,
+        "melting_point": 923, "boiling_point": 1363,
+        "density": 1.738, "state_at_room_temp": "solid",
+        "colors": {"solid": "#F5F5F5", "liquid": "#E0E0E0"},
+        "isotopes": {
+            "²⁴Mg": {"mass": 23.985042, "abundance": 78.99, "neutrons": 12},
+            "²⁵Mg": {"mass": 24.985837, "abundance": 10.00, "neutrons": 13},
+            "²⁶Mg": {"mass": 25.982593, "abundance": 11.01, "neutrons": 14}
+        },
+        "applications": ["Alloys", "Fireworks", "Medicine", "Fertilizers"],
+        "description": "Light, strong metal essential for chlorophyll in plants."
+    },
+    (2, 12): {
+        "symbol": "Al", "name": "Aluminum", "atomic_number": 13, "mass_number": 26.982,
+        "stability": "Stable", "valence_electrons": 3,
+        "category": "post_transition", "group": GROUP_13, "period": 3,
+        "discovery_year": 1825, "discovered_by": "Hans Christian Ørsted",
+        "electron_configuration": "[Ne] 3s² 3p¹", "electronegativity": 1.61,
+        "melting_point": 933.47, "boiling_point": 2792,
+        "density": 2.70, "state_at_room_temp": "solid",
+        "colors": {"solid": "#ECEFF1", "liquid": "#CFD8DC"},
+        "isotopes": {"²⁷Al": {"mass": 26.981539, "abundance": 100, "neutrons": 14}},
+        "applications": ["Packaging", "Aircraft", "Construction", "Electrical"],
+        "description": "Most abundant metal in Earth's crust, lightweight and corrosion-resistant."
+    },
+    (2, 13): {
+        "symbol": "Si", "name": "Silicon", "atomic_number": 14, "mass_number": 28.085,
+        "stability": "Stable", "valence_electrons": (-4, 2, 4),
+        "category": "metalloid", "group": GROUP_14, "period": 3,
+        "discovery_year": 1824, "discovered_by": "Jöns Jacob Berzelius",
+        "electron_configuration": "[Ne] 3s² 3p²", "electronegativity": 1.90,
+        "melting_point": 1687, "boiling_point": 3265,
+        "density": 2.3296, "state_at_room_temp": "solid",
+        "colors": {"solid": "#37474F", "liquid": "#263238"},
+        "isotopes": {
+            "²⁸Si": {"mass": 27.976927, "abundance": 92.223, "neutrons": 14},
+            "²⁹Si": {"mass": 28.976495, "abundance": 4.685, "neutrons": 15},
+            "³⁰Si": {"mass": 29.973770, "abundance": 3.092, "neutrons": 16}
+        },
+        "applications": ["Semiconductors", "Glass", "Solar cells", "Concrete"],
+        "description": "Essential for modern electronics, second most abundant element in crust."
+    },
+    (2, 14): {
+        "symbol": "P", "name": "Phosphorus", "atomic_number": 15, "mass_number": 30.974,
+        "stability": "Stable", "valence_electrons": (-3, +1, +3, +5),
+        "category": "nonmetal", "group": GROUP_15, "period": 3,
+        "discovery_year": 1669, "discovered_by": "Hennig Brand",
+        "electron_configuration": "[Ne] 3s² 3p³", "electronegativity": 2.19,
+        "melting_point": 317.30, "boiling_point": 550,
+        "density": 1.82, "state_at_room_temp": "solid",
+        "allotropes": ["White", "Red", "Black"],
+        "colors": {"solid": "#FFF3E0", "liquid": "#FFE0B2"},
+        "isotopes": {"³¹P": {"mass": 30.973762, "abundance": 100, "neutrons": 16}},
+        "applications": ["Fertilizers", "Matches", "DNA/RNA", "Detergents"],
+        "description": "Essential for life, found in DNA, RNA, ATP, and bones."
+    },
+    (2, 15): {
+        "symbol": "S", "name": "Sulfur", "atomic_number": 16, "mass_number": 32.06,
+        "stability": "Stable", "valence_electrons": (-2, +2, +4, +6),
+        "category": "nonmetal", "group": GROUP_16, "period": 3,
+        "discovery_year": -2000, "discovered_by": "Ancient civilizations",
+        "electron_configuration": "[Ne] 3s² 3p⁴", "electronegativity": 2.58,
+        "melting_point": 388.36, "boiling_point": 717.8,
+        "density": 2.07, "state_at_room_temp": "solid",
+        "colors": {"solid": "#FFF9C4", "liquid": "#FFF59D"},
+        "isotopes": {
+            "³²S": {"mass": 31.972071, "abundance": 94.99, "neutrons": 16},
+            "³³S": {"mass": 32.971459, "abundance": 0.75, "neutrons": 17},
+            "³⁴S": {"mass": 33.967867, "abundance": 4.25, "neutrons": 18},
+            "³⁶S": {"mass": 35.967081, "abundance": 0.01, "neutrons": 20}
+        },
+        "applications": ["Fertilizers", "Rubber", "Fungicides", "Gunpowder"],
+        "description": "Yellow nonmetal, essential for proteins and known since ancient times."
+    },
+    (2, 16): {
+        "symbol": "Cl", "name": "Chlorine", "atomic_number": 17, "mass_number": 35.45,
+        "stability": "Stable", "valence_electrons": (-1, +1, +3, +5, +7),
+        "category": "halogen", "group": GROUP_17, "period": 3,
+        "discovery_year": 1774, "discovered_by": "Carl Wilhelm Scheele",
+        "electron_configuration": "[Ne] 3s² 3p⁵", "electronegativity": 3.16,
+        "melting_point": 171.6, "boiling_point": 239.11,
+        "density": 0.003214, "state_at_room_temp": "gas",
+        "colors": {"gas": "#E8F5E9", "liquid": "#C8E6C9"},
+        "isotopes": {
+            "³⁵Cl": {"mass": 34.968853, "abundance": 75.76, "neutrons": 18},
+            "³⁷Cl": {"mass": 36.965903, "abundance": 24.24, "neutrons": 20}
+        },
+        "applications": ["Water purification", "PVC plastics", "Bleach", "Pool sanitation"],
+        "description": "Greenish-yellow gas, essential for water purification and PVC production."
+    },
+    (2, 17): {
+        "symbol": "Ar", "name": "Argon", "atomic_number": 18, "mass_number": 39.948,
+        "stability": "Stable", "valence_electrons": 0,
+        "category": "noble_gas", "group": GROUP_18, "period": 3,
+        "discovery_year": 1894, "discovered_by": "Lord Rayleigh, William Ramsay",
+        "electron_configuration": "[Ne] 3s² 3p⁶", "electronegativity": None,
+        "melting_point": 83.80, "boiling_point": 87.30,
+        "density": 0.0017837, "state_at_room_temp": "gas",
+        "colors": {"gas": "#F3E5F5", "liquid": "#E1BEE7"},
+        "isotopes": {
+            "³⁶Ar": {"mass": 35.967545, "abundance": 0.336, "neutrons": 18},
+            "³⁸Ar": {"mass": 37.962732, "abundance": 0.063, "neutrons": 20},
+            "⁴⁰Ar": {"mass": 39.962383, "abundance": 99.600, "neutrons": 22}
+        },
+        "applications": ["Welding", "Light bulbs", "Double glazing", "Aging wine"],
+        "description": "Third most abundant gas in atmosphere, inert and colorless."
+    },
+    # Period 4
+    (3, 0): {
+        "symbol": "K", "name": "Potassium", "atomic_number": 19, "mass_number": 39.098,
+        "stability": "Stable", "valence_electrons": 1,
+        "category": "alkali_metal", "group": GROUP_1, "period": 4,
+        "discovery_year": 1807, "discovered_by": "Humphry Davy",
+        "electron_configuration": "[Ar] 4s¹", "electronegativity": 0.82,
+        "melting_point": 336.53, "boiling_point": 1032,
+        "density": 0.862, "state_at_room_temp": "solid",
+        "colors": {"solid": "#E8EAF6", "liquid": "#9FA8DA"},
+        "isotopes": {
+            "³⁹K": {"mass": 38.963707, "abundance": 93.2581, "neutrons": 20},
+            "⁴⁰K": {"mass": 39.963999, "abundance": 0.0117, "neutrons": 21, "half_life": "1.25 billion years"},
+            "⁴¹K": {"mass": 40.961826, "abundance": 6.7302, "neutrons": 22}
+        },
+        "applications": ["Fertilizers", "Potassium hydroxide", "Nutrition", "Soap"],
+        "description": "Essential for life, vital for nerve and muscle function."
+    },
+    (3, 1): {
+        "symbol": "Ca", "name": "Calcium", "atomic_number": 20, "mass_number": 40.078,
+        "stability": "Stable", "valence_electrons": 2,
+        "category": "alkaline_earth", "group": GROUP_2, "period": 4,
+        "discovery_year": 1808, "discovered_by": "Humphry Davy",
+        "electron_configuration": "[Ar] 4s²", "electronegativity": 1.00,
+        "melting_point": 1115, "boiling_point": 1757,
+        "density": 1.55, "state_at_room_temp": "solid",
+        "colors": {"solid": "#F5F5F5", "liquid": "#E0E0E0"},
+        "isotopes": {
+            "⁴⁰Ca": {"mass": 39.962591, "abundance": 96.941, "neutrons": 20},
+            "⁴²Ca": {"mass": 41.958618, "abundance": 0.647, "neutrons": 22},
+            "⁴³Ca": {"mass": 42.958767, "abundance": 0.135, "neutrons": 23},
+            "⁴⁴Ca": {"mass": 43.955482, "abundance": 2.086, "neutrons": 24},
+            "⁴⁶Ca": {"mass": 45.953693, "abundance": 0.004, "neutrons": 26},
+            "⁴⁸Ca": {"mass": 47.952534, "abundance": 0.187, "neutrons": 28}
+        },
+        "applications": ["Bones/teeth", "Cement", "Metallurgy", "Calcium supplements"],
+        "description": "Essential for bones and teeth, fifth most abundant element in Earth's crust."
+    },
+    (3, 2): {
+        "symbol": "Sc", "name": "Scandium", "atomic_number": 21, "mass_number": 44.956,
+        "stability": "Stable", "valence_electrons": 3,
+        "category": "transition_metal", "group": GROUP_3, "period": 4,
+        "discovery_year": 1879, "discovered_by": "Lars Fredrik Nilson",
+        "electron_configuration": "[Ar] 3d¹ 4s²", "electronegativity": 1.36,
+        "melting_point": 1814, "boiling_point": 3109,
+        "density": 2.985, "state_at_room_temp": "solid",
+        "colors": {"solid": "#ECEFF1", "liquid": "#B0BEC5"},
+        "isotopes": {"⁴⁵Sc": {"mass": 44.955908, "abundance": 100, "neutrons": 24}},
+        "applications": ["Aerospace", "Mercury vapor lamps", "Baseball bats", "Tracking"],
+        "description": "Rare earth element used in aerospace alloys and sporting goods."
+    },
+    (3, 3): {
+        "symbol": "Ti", "name": "Titanium", "atomic_number": 22, "mass_number": 47.867,
+        "stability": "Stable", "valence_electrons": (+2, +3, +4),
+        "category": "transition_metal", "group": GROUP_4, "period": 4,
+        "discovery_year": 1791, "discovered_by": "William Gregor",
+        "electron_configuration": "[Ar] 3d² 4s²", "electronegativity": 1.54,
+        "melting_point": 1941, "boiling_point": 3560,
+        "density": 4.507, "state_at_room_temp": "solid",
+        "colors": {"solid": "#ECEFF1", "liquid": "#CFD8DC"},
+        "isotopes": {
+            "⁴⁶Ti": {"mass": 45.952632, "abundance": 8.25, "neutrons": 24},
+            "⁴⁷Ti": {"mass": 46.951763, "abundance": 7.44, "neutrons": 25},
+            "⁴⁸Ti": {"mass": 47.947946, "abundance": 73.72, "neutrons": 26},
+            "⁴⁹Ti": {"mass": 48.947870, "abundance": 5.41, "neutrons": 27},
+            "⁵⁰Ti": {"mass": 49.944791, "abundance": 5.18, "neutrons": 28}
+        },
+        "applications": ["Aircraft", "Medical implants", "Pigments", "Jewelry"],
+        "description": "Strong, lightweight, corrosion-resistant metal used extensively in aerospace."
+    },
+    # Period 4 continued
+    (3, 4): {"symbol": "V", "name": "Vanadium", "atomic_number": 23, "mass_number": 50.942,
+             "stability": "Stable", "valence_electrons": (+2, +3, +4, +5),
+             "category": "transition_metal", "group": GROUP_5, "period": 4,
+             "electron_configuration": "[Ar] 3d³ 4s²", "electronegativity": 1.63,
+             "melting_point": 2183, "boiling_point": 3680, "density": 6.11,
+             "state_at_room_temp": "solid",
+             "colors": {"solid": "#ECEFF1", "liquid": "#CFD8DC"},
+             "isotopes": {"⁵¹V": {"mass": 50.943964, "abundance": 99.75, "neutrons": 28}},
+             "applications": ["Steel alloys", "Catalysts", "Vanadium redox batteries"],
+             "description": "Used to make strong steel alloys and flow batteries."},
+
+    (3, 5): {"symbol": "Cr", "name": "Chromium", "atomic_number": 24, "mass_number": 51.996,
+             "stability": "Stable", "valence_electrons": (+2, +3, +6),
+             "category": "transition_metal", "group": GROUP_6, "period": 4,
+             "electron_configuration": "[Ar] 3d⁵ 4s¹", "electronegativity": 1.66,
+             "melting_point": 2180, "boiling_point": 2944, "density": 7.15,
+             "state_at_room_temp": "solid",
+             "colors": {"solid": "#C0C0C0", "liquid": "#A0A0A0"},
+             "isotopes": {"⁵²Cr": {"mass": 51.940508, "abundance": 83.79, "neutrons": 28}},
+             "applications": ["Stainless steel", "Chrome plating", "Pigments"],
+             "description": "Shiny metal used for corrosion-resistant plating and stainless steel."},
+
+    (3, 6): {"symbol": "Mn", "name": "Manganese", "atomic_number": 25, "mass_number": 54.938,
+             "stability": "Stable", "valence_electrons": (+2, +3, +4, +6, +7),
+             "category": "transition_metal", "group": GROUP_7, "period": 4,
+             "electron_configuration": "[Ar] 3d⁵ 4s²", "electronegativity": 1.55,
+             "melting_point": 1519, "boiling_point": 2334, "density": 7.44,
+             "state_at_room_temp": "solid",
+             "colors": {"solid": "#8D6E63", "liquid": "#6D4C41"},
+             "isotopes": {"⁵⁵Mn": {"mass": 54.938045, "abundance": 100, "neutrons": 30}},
+             "applications": ["Steel production", "Batteries", "Pigments"],
+             "description": "Essential for steel production and biological systems."},
+
+    (3, 7): {"symbol": "Fe", "name": "Iron", "atomic_number": 26, "mass_number": 55.845,
+             "stability": "Stable", "valence_electrons": (+2, +3),
+             "category": "transition_metal", "group": GROUP_8, "period": 4,
+             "electron_configuration": "[Ar] 3d⁶ 4s²", "electronegativity": 1.83,
+             "melting_point": 1811, "boiling_point": 3134, "density": 7.874,
+             "state_at_room_temp": "solid",
+             "colors": {"solid": "#757575", "liquid": "#616161"},
+             "isotopes": {"⁵⁶Fe": {"mass": 55.934937, "abundance": 91.75, "neutrons": 30}},
+             "applications": ["Steel", "Construction", "Magnetic materials", "Blood"],
+             "description": "Most important structural metal, essential for life and industry."},
+
+    (3, 8): {"symbol": "Co", "name": "Cobalt", "atomic_number": 27, "mass_number": 58.933,
+             "stability": "Stable", "valence_electrons": (+2, +3),
+             "category": "transition_metal", "group": GROUP_9, "period": 4,
+             "electron_configuration": "[Ar] 3d⁷ 4s²", "electronegativity": 1.88,
+             "melting_point": 1768, "boiling_point": 3200, "density": 8.86,
+             "state_at_room_temp": "solid",
+             "colors": {"solid": "#1565C0", "liquid": "#0D47A1"},
+             "isotopes": {"⁵⁹Co": {"mass": 58.933195, "abundance": 100, "neutrons": 32}},
+             "applications": ["Magnets", "Batteries", "Pigments", "Catalysts"],
+             "description": "Blue-colored metal used in magnets, batteries, and pigments."},
+
+    (3, 9): {"symbol": "Ni", "name": "Nickel", "atomic_number": 28, "mass_number": 58.693,
+             "stability": "Stable", "valence_electrons": (+2, +3),
+             "category": "transition_metal", "group": GROUP_10, "period": 4,
+             "electron_configuration": "[Ar] 3d⁸ 4s²", "electronegativity": 1.91,
+             "melting_point": 1728, "boiling_point": 3186, "density": 8.91,
+             "state_at_room_temp": "solid",
+             "colors": {"solid": "#C0C0C0", "liquid": "#A0A0A0"},
+             "isotopes": {"⁵⁸Ni": {"mass": 57.935343, "abundance": 68.08, "neutrons": 30}},
+             "applications": ["Stainless steel", "Batteries", "Coins", "Plating"],
+             "description": "Corrosion-resistant metal, main component of stainless steel."},
+
+    (3, 10): {"symbol": "Cu", "name": "Copper", "atomic_number": 29, "mass_number": 63.546,
+              "stability": "Stable", "valence_electrons": (+1, +2),
+              "category": "transition_metal", "group": GROUP_11, "period": 4,
+              "electron_configuration": "[Ar] 3d¹⁰ 4s¹", "electronegativity": 1.90,
+              "melting_point": 1357.77, "boiling_point": 2835, "density": 8.96,
+              "state_at_room_temp": "solid",
+              "colors": {"solid": "#FF6F00", "liquid": "#E65100"},
+              "isotopes": {"⁶³Cu": {"mass": 62.929598, "abundance": 69.17, "neutrons": 34}},
+              "applications": ["Electrical wiring", "Plumbing", "Electronics", "Coins"],
+              "description": "Excellent conductor of electricity, used since ancient times."},
+
+    (3, 11): {"symbol": "Zn", "name": "Zinc", "atomic_number": 30, "mass_number": 65.38,
+              "stability": "Stable", "valence_electrons": 2,
+              "category": "transition_metal", "group": GROUP_12, "period": 4,
+              "electron_configuration": "[Ar] 3d¹⁰ 4s²", "electronegativity": 1.65,
+              "melting_point": 692.68, "boiling_point": 1180, "density": 7.13,
+              "state_at_room_temp": "solid",
+              "colors": {"solid": "#ECEFF1", "liquid": "#B0BEC5"},
+              "isotopes": {"⁶⁴Zn": {"mass": 63.929142, "abundance": 48.63, "neutrons": 34}},
+              "applications": ["Galvanizing", "Batteries", "Brass", "Die casting"],
+              "description": "Used for galvanizing steel and in batteries."},
+
+    (3, 12): {"symbol": "Ga", "name": "Gallium", "atomic_number": 31, "mass_number": 69.723,
+              "stability": "Stable", "valence_electrons": 3,
+              "category": "post_transition", "group": GROUP_13, "period": 4,
+              "electron_configuration": "[Ar] 3d¹⁰ 4s² 4p¹", "electronegativity": 1.81,
+              "melting_point": 302.91, "boiling_point": 2471, "density": 5.91,
+              "state_at_room_temp": "solid",
+              "colors": {"solid": "#C0C0C0", "liquid": "#A0A0A0"},
+              "applications": ["LEDs", "Semiconductors", "Thermometers"],
+              "description": "Metal that melts in your hand, used in LEDs."},
+
+    (3, 13): {"symbol": "Ge", "name": "Germanium", "atomic_number": 32, "mass_number": 72.630,
+              "stability": "Stable", "valence_electrons": (+2, +4),
+              "category": "metalloid", "group": GROUP_14, "period": 4,
+              "electron_configuration": "[Ar] 3d¹⁰ 4s² 4p²", "electronegativity": 2.01,
+              "melting_point": 1211.40, "boiling_point": 3106, "density": 5.32,
+              "state_at_room_temp": "solid",
+              "colors": {"solid": "#424242", "liquid": "#212121"},
+              "applications": ["Fiber optics", "Infrared optics", "Semiconductors"],
+              "description": "Semiconductor used in fiber optics and electronics."},
+
+    (3, 14): {"symbol": "As", "name": "Arsenic", "atomic_number": 33, "mass_number": 74.922,
+              "stability": "Stable", "valence_electrons": (-3, +3, +5),
+              "category": "metalloid", "group": GROUP_15, "period": 4,
+              "electron_configuration": "[Ar] 3d¹⁰ 4s² 4p³", "electronegativity": 2.18,
+              "melting_point": 1090, "boiling_point": 887, "density": 5.72,
+              "state_at_room_temp": "solid",
+              "colors": {"solid": "#FFE0B2", "liquid": "#FFCC80"},
+              "applications": ["Semiconductors", "Wood treatment", "Lead alloys"],
+              "description": "Toxic metalloid used in semiconductors and alloys."},
+
+    (3, 15): {"symbol": "Se", "name": "Selenium", "atomic_number": 34, "mass_number": 78.971,
+              "stability": "Stable", "valence_electrons": (-2, +4, +6),
+              "category": "nonmetal", "group": GROUP_16, "period": 4,
+              "electron_configuration": "[Ar] 3d¹⁰ 4s² 4p⁴", "electronegativity": 2.55,
+              "melting_point": 494, "boiling_point": 958, "density": 4.81,
+              "state_at_room_temp": "solid",
+              "colors": {"solid": "#FFE0B2", "liquid": "#FFCC80"},
+              "applications": ["Photocopiers", "Glass production", "Nutrition"],
+              "description": "Essential trace element used in photocopiers and glass."},
+
+    (3, 16): {"symbol": "Br", "name": "Bromine", "atomic_number": 35, "mass_number": 79.904,
+              "stability": "Stable", "valence_electrons": (-1, +1, +5, +7),
+              "category": "halogen", "group": GROUP_17, "period": 4,
+              "electron_configuration": "[Ar] 3d¹⁰ 4s² 4p⁵", "electronegativity": 2.96,
+              "melting_point": 265.8, "boiling_point": 332.0, "density": 3.12,
+              "state_at_room_temp": "liquid",
+              "colors": {"liquid": "#8D6E63", "gas": "#A1887F"},
+              "applications": ["Flame retardants", "Water treatment", "Pharmaceuticals"],
+              "description": "Only liquid nonmetal at room temperature, reddish-brown."},
+
+    (3, 17): {"symbol": "Kr", "name": "Krypton", "atomic_number": 36, "mass_number": 83.798,
+              "stability": "Stable", "valence_electrons": 0,
+              "category": "noble_gas", "group": GROUP_18, "period": 4,
+              "electron_configuration": "[Ar] 3d¹⁰ 4s² 4p⁶", "electronegativity": 3.00,
+              "melting_point": 115.79, "boiling_point": 119.93, "density": 0.003749,
+              "state_at_room_temp": "gas",
+              "colors": {"gas": "#E3F2FD", "liquid": "#BBDEFB"},
+              "applications": ["High-performance lighting", "Insulation", "Lasers"],
+              "description": "Noble gas used in high-performance lighting."},
+
+    # Period 5 - abbreviated
+    (4, 0): {"symbol": "Rb", "name": "Rubidium", "atomic_number": 37, "mass_number": 85.468,
+             "stability": "Stable", "valence_electrons": 1,
+             "category": "alkali_metal", "group": GROUP_1, "period": 5,
+             "electron_configuration": "[Kr] 5s¹", "electronegativity": 0.82,
+             "melting_point": 312.46, "boiling_point": 961, "density": 1.53,
+             "state_at_room_temp": "solid", "colors": {"solid": "#E8EAF6"}},
+
+    (4, 1): {"symbol": "Sr", "name": "Strontium", "atomic_number": 38, "mass_number": 87.62,
+             "stability": "Stable", "valence_electrons": 2,
+             "category": "alkaline_earth", "group": GROUP_2, "period": 5,
+             "electron_configuration": "[Kr] 5s²", "electronegativity": 0.95,
+             "melting_point": 1050, "boiling_point": 1655, "density": 2.64,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F5F5F5"}},
+
+    (4, 2): {"symbol": "Y", "name": "Yttrium", "atomic_number": 39, "mass_number": 88.906,
+             "stability": "Stable", "valence_electrons": 3,
+             "category": "transition_metal", "group": GROUP_3, "period": 5,
+             "electron_configuration": "[Kr] 4d¹ 5s²", "electronegativity": 1.22,
+             "melting_point": 1799, "boiling_point": 3609, "density": 4.47,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (4, 3): {"symbol": "Zr", "name": "Zirconium", "atomic_number": 40, "mass_number": 91.224,
+             "stability": "Stable", "valence_electrons": 4,
+             "category": "transition_metal", "group": GROUP_4, "period": 5,
+             "electron_configuration": "[Kr] 4d² 5s²", "electronegativity": 1.33,
+             "melting_point": 2128, "boiling_point": 4682, "density": 6.52,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (4, 4): {"symbol": "Nb", "name": "Niobium", "atomic_number": 41, "mass_number": 92.906,
+             "stability": "Stable", "valence_electrons": (+2, +3, +4, +5),
+             "category": "transition_metal", "group": GROUP_5, "period": 5,
+             "electron_configuration": "[Kr] 4d⁴ 5s¹", "electronegativity": 1.6,
+             "melting_point": 2750, "boiling_point": 5017, "density": 8.57,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (4, 5): {"symbol": "Mo", "name": "Molybdenum", "atomic_number": 42, "mass_number": 95.95,
+             "stability": "Stable", "valence_electrons": (+2, +3, +4, +5, +6),
+             "category": "transition_metal", "group": GROUP_6, "period": 5,
+             "electron_configuration": "[Kr] 4d⁵ 5s¹", "electronegativity": 2.16,
+             "melting_point": 2896, "boiling_point": 4912, "density": 10.28,
+             "state_at_room_temp": "solid", "colors": {"solid": "#9E9E9E"}},
+
+    (4, 6): {"symbol": "Tc", "name": "Technetium", "atomic_number": 43, "mass_number": 98,
+             "stability": "Radioactive", "valence_electrons": (+4, +7),
+             "category": "transition_metal", "group": GROUP_7, "period": 5,
+             "electron_configuration": "[Kr] 4d⁵ 5s²", "electronegativity": 1.9,
+             "melting_point": 2430, "boiling_point": 4538, "density": 11.5,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (4, 7): {"symbol": "Ru", "name": "Ruthenium", "atomic_number": 44, "mass_number": 101.07,
+             "stability": "Stable", "valence_electrons": (+2, +3, +4, +6, +8),
+             "category": "transition_metal", "group": GROUP_8, "period": 5,
+             "electron_configuration": "[Kr] 4d⁷ 5s¹", "electronegativity": 2.2,
+             "melting_point": 2607, "boiling_point": 4423, "density": 12.45,
+             "state_at_room_temp": "solid", "colors": {"solid": "#B0BEC5"}},
+
+    (4, 8): {"symbol": "Rh", "name": "Rhodium", "atomic_number": 45, "mass_number": 102.91,
+             "stability": "Stable", "valence_electrons": (+2, +3, +4),
+             "category": "transition_metal", "group": GROUP_9, "period": 5,
+             "electron_configuration": "[Kr] 4d⁸ 5s¹", "electronegativity": 2.28,
+             "melting_point": 2237, "boiling_point": 3968, "density": 12.41,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (4, 9): {"symbol": "Pd", "name": "Palladium", "atomic_number": 46, "mass_number": 106.42,
+             "stability": "Stable", "valence_electrons": (+2, +4),
+             "category": "transition_metal", "group": GROUP_10, "period": 5,
+             "electron_configuration": "[Kr] 4d¹⁰", "electronegativity": 2.20,
+             "melting_point": 1828.05, "boiling_point": 3236, "density": 12.02,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (4, 10): {"symbol": "Ag", "name": "Silver", "atomic_number": 47, "mass_number": 107.87,
+              "stability": "Stable", "valence_electrons": 1,
+              "category": "transition_metal", "group": GROUP_11, "period": 5,
+              "electron_configuration": "[Kr] 4d¹⁰ 5s¹", "electronegativity": 1.93,
+              "melting_point": 1234.93, "boiling_point": 2435, "density": 10.49,
+              "state_at_room_temp": "solid", "colors": {"solid": "#C0C0C0"}},
+
+    (4, 11): {"symbol": "Cd", "name": "Cadmium", "atomic_number": 48, "mass_number": 112.41,
+              "stability": "Stable", "valence_electrons": 2,
+              "category": "transition_metal", "group": GROUP_12, "period": 5,
+              "electron_configuration": "[Kr] 4d¹⁰ 5s²", "electronegativity": 1.69,
+              "melting_point": 594.22, "boiling_point": 1040, "density": 8.69,
+              "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (4, 12): {"symbol": "In", "name": "Indium", "atomic_number": 49, "mass_number": 114.82,
+              "stability": "Stable", "valence_electrons": 3,
+              "category": "post_transition", "group": GROUP_13, "period": 5,
+              "electron_configuration": "[Kr] 4d¹⁰ 5s² 5p¹", "electronegativity": 1.78,
+              "melting_point": 429.75, "boiling_point": 2345, "density": 7.31,
+              "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (4, 13): {"symbol": "Sn", "name": "Tin", "atomic_number": 50, "mass_number": 118.71,
+              "stability": "Stable", "valence_electrons": (+2, +4),
+              "category": "post_transition", "group": GROUP_14, "period": 5,
+              "electron_configuration": "[Kr] 4d¹⁰ 5s² 5p²", "electronegativity": 1.96,
+              "melting_point": 505.08, "boiling_point": 2875, "density": 7.287,
+              "state_at_room_temp": "solid", "colors": {"solid": "#CFD8DC"}},
+
+    (4, 14): {"symbol": "Sb", "name": "Antimony", "atomic_number": 51, "mass_number": 121.76,
+              "stability": "Stable", "valence_electrons": (-3, +3, +5),
+              "category": "metalloid", "group": GROUP_15, "period": 5,
+              "electron_configuration": "[Kr] 4d¹⁰ 5s² 5p³", "electronegativity": 2.05,
+              "melting_point": 903.78, "boiling_point": 1860, "density": 6.685,
+              "state_at_room_temp": "solid", "colors": {"solid": "#B0BEC5"}},
+
+    (4, 15): {"symbol": "Te", "name": "Tellurium", "atomic_number": 52, "mass_number": 127.60,
+              "stability": "Stable", "valence_electrons": (-2, +2, +4, +6),
+              "category": "metalloid", "group": GROUP_16, "period": 5,
+              "electron_configuration": "[Kr] 4d¹⁰ 5s² 5p⁴", "electronegativity": 2.1,
+              "melting_point": 722.66, "boiling_point": 1261, "density": 6.232,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFF9C4"}},
+
+    (4, 16): {"symbol": "I", "name": "Iodine", "atomic_number": 53, "mass_number": 126.90,
+              "stability": "Stable", "valence_electrons": (-1, +1, +5, +7),
+              "category": "halogen", "group": GROUP_17, "period": 5,
+              "electron_configuration": "[Kr] 4d¹⁰ 5s² 5p⁵", "electronegativity": 2.66,
+              "melting_point": 386.85, "boiling_point": 457.4, "density": 4.93,
+              "state_at_room_temp": "solid", "colors": {"solid": "#3F51B5", "gas": "#5C6BC0"}},
+
+    (4, 17): {"symbol": "Xe", "name": "Xenon", "atomic_number": 54, "mass_number": 131.29,
+              "stability": "Stable", "valence_electrons": 0,
+              "category": "noble_gas", "group": GROUP_18, "period": 5,
+              "electron_configuration": "[Kr] 4d¹⁰ 5s² 5p⁶", "electronegativity": 2.6,
+              "melting_point": 161.4, "boiling_point": 165.03, "density": 0.005887,
+              "state_at_room_temp": "gas", "colors": {"gas": "#E3F2FD"}},
+
+    # Period 6 - abbreviated
+    (5, 0): {"symbol": "Cs", "name": "Cesium", "atomic_number": 55, "mass_number": 132.91,
+             "stability": "Stable", "valence_electrons": 1,
+             "category": "alkali_metal", "group": GROUP_1, "period": 6,
+             "electron_configuration": "[Xe] 6s¹", "electronegativity": 0.79,
+             "melting_point": 301.59, "boiling_point": 944, "density": 1.873,
+             "state_at_room_temp": "solid", "colors": {"solid": "#FFD54F"}},
+
+    (5, 1): {"symbol": "Ba", "name": "Barium", "atomic_number": 56, "mass_number": 137.33,
+             "stability": "Stable", "valence_electrons": 2,
+             "category": "alkaline_earth", "group": GROUP_2, "period": 6,
+             "electron_configuration": "[Xe] 6s²", "electronegativity": 0.89,
+             "melting_point": 1000, "boiling_point": 2170, "density": 3.594,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F5F5F5"}},
+
+    (5, 2): {"symbol": "*", "name": "Lanthanides", "atomic_number": None, "mass_number": None,
+             "stability": "", "valence_electrons": None,
+             "category": "lanthanide", "group": "Lanthanides", "period": 6,
+             "electron_configuration": "", "electronegativity": None,
+             "melting_point": None, "boiling_point": None, "density": None,
+             "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (5, 3): {"symbol": "Hf", "name": "Hafnium", "atomic_number": 72, "mass_number": 178.49,
+             "stability": "Stable", "valence_electrons": 4,
+             "category": "transition_metal", "group": GROUP_4, "period": 6,
+             "electron_configuration": "[Xe] 4f¹⁴ 5d² 6s²", "electronegativity": 1.3,
+             "melting_point": 2506, "boiling_point": 4876, "density": 13.31,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (5, 4): {"symbol": "Ta", "name": "Tantalum", "atomic_number": 73, "mass_number": 180.95,
+             "stability": "Stable", "valence_electrons": 5,
+             "category": "transition_metal", "group": GROUP_5, "period": 6,
+             "electron_configuration": "[Xe] 4f¹⁴ 5d³ 6s²", "electronegativity": 1.5,
+             "melting_point": 3290, "boiling_point": 5731, "density": 16.65,
+             "state_at_room_temp": "solid", "colors": {"solid": "#9E9E9E"}},
+
+    (5, 5): {"symbol": "W", "name": "Tungsten", "atomic_number": 74, "mass_number": 183.84,
+             "stability": "Stable", "valence_electrons": (+2, +4, +6),
+             "category": "transition_metal", "group": GROUP_6, "period": 6,
+             "electron_configuration": "[Xe] 4f¹⁴ 5d⁴ 6s²", "electronegativity": 2.36,
+             "melting_point": 3695, "boiling_point": 5828, "density": 19.25,
+             "state_at_room_temp": "solid", "colors": {"solid": "#757575"}},
+
+    (5, 6): {"symbol": "Re", "name": "Rhenium", "atomic_number": 75, "mass_number": 186.21,
+             "stability": "Stable", "valence_electrons": (+4, +7),
+             "category": "transition_metal", "group": GROUP_7, "period": 6,
+             "electron_configuration": "[Xe] 4f¹⁴ 5d⁵ 6s²", "electronegativity": 1.9,
+             "melting_point": 3459, "boiling_point": 5869, "density": 21.02,
+             "state_at_room_temp": "solid", "colors": {"solid": "#B0BEC5"}},
+
+    (5, 7): {"symbol": "Os", "name": "Osmium", "atomic_number": 76, "mass_number": 190.23,
+             "stability": "Stable", "valence_electrons": (+3, +4, +6, +8),
+             "category": "transition_metal", "group": GROUP_8, "period": 6,
+             "electron_configuration": "[Xe] 4f¹⁴ 5d⁶ 6s²", "electronegativity": 2.2,
+             "melting_point": 3306, "boiling_point": 5285, "density": 22.59,
+             "state_at_room_temp": "solid", "colors": {"solid": "#607D8B"}},
+
+    (5, 8): {"symbol": "Ir", "name": "Iridium", "atomic_number": 77, "mass_number": 192.22,
+             "stability": "Stable", "valence_electrons": (+3, +4, +6),
+             "category": "transition_metal", "group": GROUP_9, "period": 6,
+             "electron_configuration": "[Xe] 4f¹⁴ 5d⁷ 6s²", "electronegativity": 2.20,
+             "melting_point": 2719, "boiling_point": 4701, "density": 22.56,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (5, 9): {"symbol": "Pt", "name": "Platinum", "atomic_number": 78, "mass_number": 195.08,
+             "stability": "Stable", "valence_electrons": (+2, +4),
+             "category": "transition_metal", "group": GROUP_10, "period": 6,
+             "electron_configuration": "[Xe] 4f¹⁴ 5d⁹ 6s¹", "electronegativity": 2.28,
+             "melting_point": 2041.4, "boiling_point": 3825, "density": 21.46,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (5, 10): {"symbol": "Au", "name": "Gold", "atomic_number": 79, "mass_number": 196.97,
+              "stability": "Stable", "valence_electrons": (+1, +3),
+              "category": "transition_metal", "group": GROUP_11, "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁴ 5d¹⁰ 6s¹", "electronegativity": 2.54,
+              "melting_point": 1337.33, "boiling_point": 3129, "density": 19.28,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFD700"}},
+
+    (5, 11): {"symbol": "Hg", "name": "Mercury", "atomic_number": 80, "mass_number": 200.59,
+              "stability": "Stable", "valence_electrons": (+1, +2),
+              "category": "transition_metal", "group": GROUP_12, "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁴ 5d¹⁰ 6s²", "electronegativity": 2.00,
+              "melting_point": 234.32, "boiling_point": 629.88, "density": 13.53,
+              "state_at_room_temp": "liquid", "colors": {"liquid": "#C0C0C0"}},
+
+    (5, 12): {"symbol": "Tl", "name": "Thallium", "atomic_number": 81, "mass_number": 204.38,
+              "stability": "Stable", "valence_electrons": (+1, +3),
+              "category": "post_transition", "group": GROUP_13, "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p¹", "electronegativity": 1.62,
+              "melting_point": 577, "boiling_point": 1746, "density": 11.85,
+              "state_at_room_temp": "solid", "colors": {"solid": "#9E9E9E"}},
+
+    (5, 13): {"symbol": "Pb", "name": "Lead", "atomic_number": 82, "mass_number": 207.2,
+              "stability": "Stable", "valence_electrons": (+2, +4),
+              "category": "post_transition", "group": GROUP_14, "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p²", "electronegativity": 1.87,
+              "melting_point": 600.61, "boiling_point": 2022, "density": 11.34,
+              "state_at_room_temp": "solid", "colors": {"solid": "#616161"}},
+
+    (5, 14): {"symbol": "Bi", "name": "Bismuth", "atomic_number": 83, "mass_number": 208.98,
+              "stability": "Stable", "valence_electrons": (+3, +5),
+              "category": "post_transition", "group": GROUP_15, "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p³", "electronegativity": 2.02,
+              "melting_point": 544.7, "boiling_point": 1837, "density": 9.78,
+              "state_at_room_temp": "solid", "colors": {"solid": "#F5F5F5"}},
+
+    (5, 15): {"symbol": "Po", "name": "Polonium", "atomic_number": 84, "mass_number": 209,
+              "stability": "Radioactive", "valence_electrons": (+2, +4),
+              "category": "metalloid", "group": GROUP_16, "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p⁴", "electronegativity": 2.0,
+              "melting_point": 527, "boiling_point": 1235, "density": 9.20,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (5, 16): {"symbol": "At", "name": "Astatine", "atomic_number": 85, "mass_number": 210,
+              "stability": "Radioactive", "valence_electrons": (-1, +1, +3, +5, +7),
+              "category": "halogen", "group": GROUP_17, "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p⁵", "electronegativity": 2.2,
+              "melting_point": 302, "boiling_point": 350, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#D7CCC8"}},
+
+    (5, 17): {"symbol": "Rn", "name": "Radon", "atomic_number": 86, "mass_number": 222,
+              "stability": "Radioactive", "valence_electrons": 0,
+              "category": "noble_gas", "group": GROUP_18, "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p⁶", "electronegativity": None,
+              "melting_point": 202, "boiling_point": 211.3, "density": 0.00973,
+              "state_at_room_temp": "gas", "colors": {"gas": "#E3F2FD"}},
+
+    # Period 7 - abbreviated
+    (6, 0): {"symbol": "Fr", "name": "Francium", "atomic_number": 87, "mass_number": 223,
+             "stability": "Radioactive", "valence_electrons": 1,
+             "category": "alkali_metal", "group": GROUP_1, "period": 7,
+             "electron_configuration": "[Rn] 7s¹", "electronegativity": 0.7,
+             "melting_point": 300, "boiling_point": 950, "density": None,
+             "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (6, 1): {"symbol": "Ra", "name": "Radium", "atomic_number": 88, "mass_number": 226,
+             "stability": "Radioactive", "valence_electrons": 2,
+             "category": "alkaline_earth", "group": GROUP_2, "period": 7,
+             "electron_configuration": "[Rn] 7s²", "electronegativity": 0.9,
+             "melting_point": 973, "boiling_point": 2010, "density": 5.5,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F5F5F5"}},
+
+    (6, 2): {"symbol": "**", "name": "Actinides", "atomic_number": None, "mass_number": None,
+             "stability": "", "valence_electrons": None,
+             "category": "actinide", "group": "Actinides", "period": 7,
+             "electron_configuration": "", "electronegativity": None,
+             "melting_point": None, "boiling_point": None, "density": None,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (6, 3): {"symbol": "Rf", "name": "Rutherfordium", "atomic_number": 104, "mass_number": 267,
+             "stability": "Radioactive", "valence_electrons": 4,
+             "category": "transition_metal", "group": GROUP_4, "period": 7,
+             "electron_configuration": "[Rn] 5f¹⁴ 6d² 7s²", "electronegativity": None,
+             "melting_point": None, "boiling_point": None, "density": None,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (6, 4): {"symbol": "Db", "name": "Dubnium", "atomic_number": 105, "mass_number": 270,
+             "stability": "Radioactive", "valence_electrons": 5,
+             "category": "transition_metal", "group": GROUP_5, "period": 7,
+             "electron_configuration": "[Rn] 5f¹⁴ 6d³ 7s²", "electronegativity": None,
+             "melting_point": None, "boiling_point": None, "density": None,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (6, 5): {"symbol": "Sg", "name": "Seaborgium", "atomic_number": 106, "mass_number": 271,
+             "stability": "Radioactive", "valence_electrons": 6,
+             "category": "transition_metal", "group": GROUP_6, "period": 7,
+             "electron_configuration": "[Rn] 5f¹⁴ 6d⁴ 7s²", "electronegativity": None,
+             "melting_point": None, "boiling_point": None, "density": None,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (6, 6): {"symbol": "Bh", "name": "Bohrium", "atomic_number": 107, "mass_number": 270,
+             "stability": "Radioactive", "valence_electrons": 7,
+             "category": "transition_metal", "group": GROUP_7, "period": 7,
+             "electron_configuration": "[Rn] 5f¹⁴ 6d⁵ 7s²", "electronegativity": None,
+             "melting_point": None, "boiling_point": None, "density": None,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (6, 7): {"symbol": "Hs", "name": "Hassium", "atomic_number": 108, "mass_number": 277,
+             "stability": "Radioactive", "valence_electrons": 8,
+             "category": "transition_metal", "group": GROUP_8, "period": 7,
+             "electron_configuration": "[Rn] 5f¹⁴ 6d⁶ 7s²", "electronegativity": None,
+             "melting_point": None, "boiling_point": None, "density": None,
+             "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (6, 8): {"symbol": "Mt", "name": "Meitnerium", "atomic_number": 109, "mass_number": 278,
+             "stability": "Radioactive", "valence_electrons": None,
+             "category": "unknown", "group": GROUP_9, "period": 7,
+             "electron_configuration": "[Rn] 5f¹⁴ 6d⁷ 7s²", "electronegativity": None,
+             "melting_point": None, "boiling_point": None, "density": None,
+             "state_at_room_temp": "solid", "colors": {"solid": "#BDBDBD"}},
+
+    (6, 9): {"symbol": "Ds", "name": "Darmstadtium", "atomic_number": 110, "mass_number": 281,
+             "stability": "Radioactive", "valence_electrons": None,
+             "category": "unknown", "group": GROUP_10, "period": 7,
+             "electron_configuration": "[Rn] 5f¹⁴ 6d⁸ 7s²", "electronegativity": None,
+             "melting_point": None, "boiling_point": None, "density": None,
+             "state_at_room_temp": "solid", "colors": {"solid": "#BDBDBD"}},
+
+    (6, 10): {"symbol": "Rg", "name": "Roentgenium", "atomic_number": 111, "mass_number": 282,
+              "stability": "Radioactive", "valence_electrons": None,
+              "category": "unknown", "group": GROUP_11, "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁴ 6d⁹ 7s²", "electronegativity": None,
+              "melting_point": None, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#BDBDBD"}},
+
+    (6, 11): {"symbol": "Cn", "name": "Copernicium", "atomic_number": 112, "mass_number": 285,
+              "stability": "Radioactive", "valence_electrons": None,
+              "category": "transition_metal", "group": GROUP_12, "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁴ 6d¹⁰ 7s²", "electronegativity": None,
+              "melting_point": None, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#ECEFF1"}},
+
+    (6, 12): {"symbol": "Nh", "name": "Nihonium", "atomic_number": 113, "mass_number": 286,
+              "stability": "Radioactive", "valence_electrons": None,
+              "category": "unknown", "group": GROUP_13, "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p¹", "electronegativity": None,
+              "melting_point": None, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#BDBDBD"}},
+
+    (6, 13): {"symbol": "Fl", "name": "Flerovium", "atomic_number": 114, "mass_number": 289,
+              "stability": "Radioactive", "valence_electrons": None,
+              "category": "unknown", "group": GROUP_14, "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p²", "electronegativity": None,
+              "melting_point": None, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#BDBDBD"}},
+
+    (6, 14): {"symbol": "Mc", "name": "Moscovium", "atomic_number": 115, "mass_number": 290,
+              "stability": "Radioactive", "valence_electrons": None,
+              "category": "unknown", "group": GROUP_15, "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p³", "electronegativity": None,
+              "melting_point": None, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#BDBDBD"}},
+
+    (6, 15): {"symbol": "Lv", "name": "Livermorium", "atomic_number": 116, "mass_number": 293,
+              "stability": "Radioactive", "valence_electrons": None,
+              "category": "unknown", "group": GROUP_16, "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p⁴", "electronegativity": None,
+              "melting_point": None, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#BDBDBD"}},
+
+    (6, 16): {"symbol": "Ts", "name": "Tennessine", "atomic_number": 117, "mass_number": 294,
+              "stability": "Radioactive", "valence_electrons": None,
+              "category": "unknown", "group": GROUP_17, "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p⁵", "electronegativity": None,
+              "melting_point": None, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#BDBDBD"}},
+
+    (6, 17): {"symbol": "Og", "name": "Oganesson", "atomic_number": 118, "mass_number": 294,
+              "stability": "Radioactive", "valence_electrons": None,
+              "category": "unknown", "group": GROUP_18, "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p⁶", "electronegativity": None,
+              "melting_point": None, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#BDBDBD"}},
+
+    # Lanthanides (row 7, columns 3-17)
+    (7, 3): {"symbol": "La", "name": "Lanthanum", "atomic_number": 57, "mass_number": 138.91,
+             "stability": "Stable", "valence_electrons": 3,
+             "category": "lanthanide", "group": "Lanthanides", "period": 6,
+             "electron_configuration": "[Xe] 5d¹ 6s²", "electronegativity": 1.10,
+             "melting_point": 1193, "boiling_point": 3737, "density": 6.15,
+             "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 4): {"symbol": "Ce", "name": "Cerium", "atomic_number": 58, "mass_number": 140.12,
+             "stability": "Stable", "valence_electrons": 3,
+             "category": "lanthanide", "group": "Lanthanides", "period": 6,
+             "electron_configuration": "[Xe] 4f¹ 5d¹ 6s²", "electronegativity": 1.12,
+             "melting_point": 1068, "boiling_point": 3716, "density": 6.77,
+             "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 5): {"symbol": "Pr", "name": "Praseodymium", "atomic_number": 59, "mass_number": 140.91,
+             "stability": "Stable", "valence_electrons": 3,
+             "category": "lanthanide", "group": "Lanthanides", "period": 6,
+             "electron_configuration": "[Xe] 4f³ 6s²", "electronegativity": 1.13,
+             "melting_point": 1208, "boiling_point": 3793, "density": 6.77,
+             "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 6): {"symbol": "Nd", "name": "Neodymium", "atomic_number": 60, "mass_number": 144.24,
+             "stability": "Stable", "valence_electrons": 3,
+             "category": "lanthanide", "group": "Lanthanides", "period": 6,
+             "electron_configuration": "[Xe] 4f⁴ 6s²", "electronegativity": 1.14,
+             "melting_point": 1297, "boiling_point": 3347, "density": 7.01,
+             "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 7): {"symbol": "Pm", "name": "Promethium", "atomic_number": 61, "mass_number": 145,
+             "stability": "Radioactive", "valence_electrons": 3,
+             "category": "lanthanide", "group": "Lanthanides", "period": 6,
+             "electron_configuration": "[Xe] 4f⁵ 6s²", "electronegativity": None,
+             "melting_point": 1315, "boiling_point": 3273, "density": 7.26,
+             "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 8): {"symbol": "Sm", "name": "Samarium", "atomic_number": 62, "mass_number": 150.36,
+             "stability": "Stable", "valence_electrons": 3,
+             "category": "lanthanide", "group": "Lanthanides", "period": 6,
+             "electron_configuration": "[Xe] 4f⁶ 6s²", "electronegativity": 1.17,
+             "melting_point": 1345, "boiling_point": 2067, "density": 7.52,
+             "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 9): {"symbol": "Eu", "name": "Europium", "atomic_number": 63, "mass_number": 151.96,
+             "stability": "Stable", "valence_electrons": (+2, +3),
+             "category": "lanthanide", "group": "Lanthanides", "period": 6,
+             "electron_configuration": "[Xe] 4f⁷ 6s²", "electronegativity": None,
+             "melting_point": 1099, "boiling_point": 1802, "density": 5.24,
+             "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 10): {"symbol": "Gd", "name": "Gadolinium", "atomic_number": 64, "mass_number": 157.25,
+              "stability": "Stable", "valence_electrons": 3,
+              "category": "lanthanide", "group": "Lanthanides", "period": 6,
+              "electron_configuration": "[Xe] 4f⁷ 5d¹ 6s²", "electronegativity": 1.20,
+              "melting_point": 1585, "boiling_point": 3546, "density": 7.90,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 11): {"symbol": "Tb", "name": "Terbium", "atomic_number": 65, "mass_number": 158.93,
+              "stability": "Stable", "valence_electrons": 3,
+              "category": "lanthanide", "group": "Lanthanides", "period": 6,
+              "electron_configuration": "[Xe] 4f⁹ 6s²", "electronegativity": None,
+              "melting_point": 1629, "boiling_point": 3503, "density": 8.23,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 12): {"symbol": "Dy", "name": "Dysprosium", "atomic_number": 66, "mass_number": 162.50,
+              "stability": "Stable", "valence_electrons": 3,
+              "category": "lanthanide", "group": "Lanthanides", "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁰ 6s²", "electronegativity": 1.22,
+              "melting_point": 1680, "boiling_point": 2840, "density": 8.55,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 13): {"symbol": "Ho", "name": "Holmium", "atomic_number": 67, "mass_number": 164.93,
+              "stability": "Stable", "valence_electrons": 3,
+              "category": "lanthanide", "group": "Lanthanides", "period": 6,
+              "electron_configuration": "[Xe] 4f¹¹ 6s²", "electronegativity": 1.23,
+              "melting_point": 1734, "boiling_point": 2993, "density": 8.79,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 14): {"symbol": "Er", "name": "Erbium", "atomic_number": 68, "mass_number": 167.26,
+              "stability": "Stable", "valence_electrons": 3,
+              "category": "lanthanide", "group": "Lanthanides", "period": 6,
+              "electron_configuration": "[Xe] 4f¹² 6s²", "electronegativity": 1.24,
+              "melting_point": 1802, "boiling_point": 3141, "density": 9.07,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 15): {"symbol": "Tm", "name": "Thulium", "atomic_number": 69, "mass_number": 168.93,
+              "stability": "Stable", "valence_electrons": 3,
+              "category": "lanthanide", "group": "Lanthanides", "period": 6,
+              "electron_configuration": "[Xe] 4f¹³ 6s²", "electronegativity": 1.25,
+              "melting_point": 1818, "boiling_point": 2223, "density": 9.32,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 16): {"symbol": "Yb", "name": "Ytterbium", "atomic_number": 70, "mass_number": 173.05,
+              "stability": "Stable", "valence_electrons": (+2, +3),
+              "category": "lanthanide", "group": "Lanthanides", "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁴ 6s²", "electronegativity": None,
+              "melting_point": 1097, "boiling_point": 1469, "density": 6.90,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    (7, 17): {"symbol": "Lu", "name": "Lutetium", "atomic_number": 71, "mass_number": 174.97,
+              "stability": "Stable", "valence_electrons": 3,
+              "category": "lanthanide", "group": "Lanthanides", "period": 6,
+              "electron_configuration": "[Xe] 4f¹⁴ 5d¹ 6s²", "electronegativity": 1.27,
+              "melting_point": 1925, "boiling_point": 3675, "density": 9.84,
+              "state_at_room_temp": "solid", "colors": {"solid": "#FFCCBC"}},
+
+    # Actinides (row 8, columns 3-17)
+    (8, 3): {"symbol": "Ac", "name": "Actinium", "atomic_number": 89, "mass_number": 227,
+             "stability": "Radioactive", "valence_electrons": 3,
+             "category": "actinide", "group": "Actinides", "period": 7,
+             "electron_configuration": "[Rn] 6d¹ 7s²", "electronegativity": 1.1,
+             "melting_point": 1323, "boiling_point": 3471, "density": 10.07,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 4): {"symbol": "Th", "name": "Thorium", "atomic_number": 90, "mass_number": 232.04,
+             "stability": "Radioactive", "valence_electrons": 4,
+             "category": "actinide", "group": "Actinides", "period": 7,
+             "electron_configuration": "[Rn] 6d² 7s²", "electronegativity": 1.3,
+             "melting_point": 2115, "boiling_point": 5061, "density": 11.72,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 5): {"symbol": "Pa", "name": "Protactinium", "atomic_number": 91, "mass_number": 231.04,
+             "stability": "Radioactive", "valence_electrons": 5,
+             "category": "actinide", "group": "Actinides", "period": 7,
+             "electron_configuration": "[Rn] 5f² 6d¹ 7s²", "electronegativity": 1.5,
+             "melting_point": 1841, "boiling_point": 4300, "density": 15.37,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 6): {"symbol": "U", "name": "Uranium", "atomic_number": 92, "mass_number": 238.03,
+             "stability": "Radioactive", "valence_electrons": (+3, +4, +5, +6),
+             "category": "actinide", "group": "Actinides", "period": 7,
+             "electron_configuration": "[Rn] 5f³ 6d¹ 7s²", "electronegativity": 1.38,
+             "melting_point": 1405.3, "boiling_point": 4404, "density": 18.95,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 7): {"symbol": "Np", "name": "Neptunium", "atomic_number": 93, "mass_number": 237,
+             "stability": "Radioactive", "valence_electrons": (+3, +4, +5, +6, +7),
+             "category": "actinide", "group": "Actinides", "period": 7,
+             "electron_configuration": "[Rn] 5f⁴ 6d¹ 7s²", "electronegativity": 1.36,
+             "melting_point": 917, "boiling_point": 4273, "density": 20.45,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 8): {"symbol": "Pu", "name": "Plutonium", "atomic_number": 94, "mass_number": 244,
+             "stability": "Radioactive", "valence_electrons": (+3, +4, +5, +6, +7),
+             "category": "actinide", "group": "Actinides", "period": 7,
+             "electron_configuration": "[Rn] 5f⁶ 7s²", "electronegativity": 1.28,
+             "melting_point": 912.5, "boiling_point": 3501, "density": 19.84,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 9): {"symbol": "Am", "name": "Americium", "atomic_number": 95, "mass_number": 243,
+             "stability": "Radioactive", "valence_electrons": (+2, +3, +4, +5, +6),
+             "category": "actinide", "group": "Actinides", "period": 7,
+             "electron_configuration": "[Rn] 5f⁷ 7s²", "electronegativity": 1.3,
+             "melting_point": 1449, "boiling_point": 2880, "density": 12,
+             "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 10): {"symbol": "Cm", "name": "Curium", "atomic_number": 96, "mass_number": 247,
+              "stability": "Radioactive", "valence_electrons": 3,
+              "category": "actinide", "group": "Actinides", "period": 7,
+              "electron_configuration": "[Rn] 5f⁷ 6d¹ 7s²", "electronegativity": 1.3,
+              "melting_point": 1613, "boiling_point": 3383, "density": 13.51,
+              "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 11): {"symbol": "Bk", "name": "Berkelium", "atomic_number": 97, "mass_number": 247,
+              "stability": "Radioactive", "valence_electrons": (+3, +4),
+              "category": "actinide", "group": "Actinides", "period": 7,
+              "electron_configuration": "[Rn] 5f⁹ 7s²", "electronegativity": 1.3,
+              "melting_point": 1259, "boiling_point": 2900, "density": 14.78,
+              "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 12): {"symbol": "Cf", "name": "Californium", "atomic_number": 98, "mass_number": 251,
+              "stability": "Radioactive", "valence_electrons": (+2, +3, +4),
+              "category": "actinide", "group": "Actinides", "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁰ 7s²", "electronegativity": 1.3,
+              "melting_point": 1173, "boiling_point": 1743, "density": 15.1,
+              "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 13): {"symbol": "Es", "name": "Einsteinium", "atomic_number": 99, "mass_number": 252,
+              "stability": "Radioactive", "valence_electrons": (+2, +3),
+              "category": "actinide", "group": "Actinides", "period": 7,
+              "electron_configuration": "[Rn] 5f¹¹ 7s²", "electronegativity": 1.3,
+              "melting_point": 1133, "boiling_point": 1269, "density": 8.84,
+              "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 14): {"symbol": "Fm", "name": "Fermium", "atomic_number": 100, "mass_number": 257,
+              "stability": "Radioactive", "valence_electrons": (+2, +3),
+              "category": "actinide", "group": "Actinides", "period": 7,
+              "electron_configuration": "[Rn] 5f¹² 7s²", "electronegativity": 1.3,
+              "melting_point": 1800, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 15): {"symbol": "Md", "name": "Mendelevium", "atomic_number": 101, "mass_number": 258,
+              "stability": "Radioactive", "valence_electrons": (+2, +3),
+              "category": "actinide", "group": "Actinides", "period": 7,
+              "electron_configuration": "[Rn] 5f¹³ 7s²", "electronegativity": 1.3,
+              "melting_point": 1100, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 16): {"symbol": "No", "name": "Nobelium", "atomic_number": 102, "mass_number": 259,
+              "stability": "Radioactive", "valence_electrons": (+2, +3),
+              "category": "actinide", "group": "Actinides", "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁴ 7s²", "electronegativity": 1.3,
+              "melting_point": 1100, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+
+    (8, 17): {"symbol": "Lr", "name": "Lawrencium", "atomic_number": 103, "mass_number": 266,
+              "stability": "Radioactive", "valence_electrons": 3,
+              "category": "actinide", "group": "Actinides", "period": 7,
+              "electron_configuration": "[Rn] 5f¹⁴ 7s² 7p¹", "electronegativity": None,
+              "melting_point": 1900, "boiling_point": None, "density": None,
+              "state_at_room_temp": "solid", "colors": {"solid": "#F8BBD9"}},
+}
+
+# Category colors for UI
+category_colors = {
+    "alkali_metal": "#FF6B6B",
+    "alkaline_earth": "#FFD93D",
+    "transition_metal": "#6BCB77",
+    "post_transition": "#9C89B8",
+    "metalloid": "#F4A261",
+    "nonmetal": "#4ECDC4",
+    "halogen": "#F7B801",
+    "noble_gas": "#9ED2C6",
+    "lanthanide": "#FF8C69",
+    "actinide": "#FF69B4",
+    "unknown": "#95A5A6"
+}
+
+category_names = {
+    "alkali_metal": "Alkali Metals",
+    "alkaline_earth": "Alkaline Earth Metals",
+    "transition_metal": "Transition Metals",
+    "post_transition": "Post-Transition Metals",
+    "metalloid": "Metalloids",
+    "nonmetal": "Nonmetals",
+    "halogen": "Halogens",
+    "noble_gas": "Noble Gases",
+    "lanthanide": "Lanthanides",
+    "actinide": "Actinides",
+    "unknown": "Unknown"
+}
+
+STYLESHEET_FRAME_1 = """
+            QFrame {
+                background-color: #34495E;
+                border-radius: 10px;
+            }
+        """
+STYLESHEET_FRAME_2 = """
+            QFrame {
+                background-color: #2C3E50;
+                border-radius: 10px;
+            }
+        """
+
+COLOR_WHITE = "color: white;"
+COLOR_2 = "color: #3498DB;"
+FONT = "Segoe UI"
