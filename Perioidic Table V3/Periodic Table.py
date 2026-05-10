@@ -7,6 +7,7 @@ import difflib
 import json
 import math
 import os
+import random
 import sys
 from functools import lru_cache
 from typing import List, Callable
@@ -275,6 +276,8 @@ class BohrModelWidget(QWidget):
         self._zoom_fade_timer = QTimer(self)
         self._zoom_fade_timer.timeout.connect(self._fade_zoom_label)
 
+        self._nucleon_cache: dict[int, list[tuple[float, float, float]]] = {}
+
         # Reset zoom button (top-right corner)
         self._reset_btn = QPushButton("⟲", self)
         self._reset_btn.setFixedSize(28, 28)
@@ -311,6 +314,7 @@ class BohrModelWidget(QWidget):
 
     def set_atomic_number(self, z: int, mass: float = 0.0):
         """Set atomic number and mass number, then update display."""
+        old_z = self.atomic_number
         self.atomic_number = z if isinstance(z, int) else 0
         self.mass_number = mass if isinstance(mass, (int, float)) else 0.0
         if self.atomic_number > 0 and not self.timer_active:
@@ -324,6 +328,9 @@ class BohrModelWidget(QWidget):
         self._zoom_fade_timer.stop()
         self._zoom_label_timer.stop()
         self._reset_btn.hide()
+        # Only clear cache when actually switching to a different element
+        if old_z != self.atomic_number:
+            self._nucleon_cache.clear()
         self.update()
 
     def update_animation(self):
@@ -532,29 +539,117 @@ class BohrModelWidget(QWidget):
     def _draw_nucleus(self, painter: QPainter, cx: float, cy: float,
                       nucleus_radius: float, nucleon_radius: float,
                       protons: int, neutrons: int):
-        """Draw the nucleus as individual shaded protons and neutrons.
-        Draws outer nucleons FIRST, inner nucleons LAST so they appear in front."""
+        """Draw the nucleus as individual 3D-packed protons and neutrons.
+        Nucleons are sorted by z-depth (farther first) for proper overlap."""
         total = protons + neutrons
         if total == 0:
             return
 
-        # Get positions for ALL nucleons
-        positions = self._get_nucleon_positions(total, nucleon_radius)
+        # Use cached positions if available for this element
+        cache_key = self.atomic_number
+        if cache_key not in self._nucleon_cache:
+            positions_3d = self._get_nucleon_positions(total, nucleon_radius)
+            self._nucleon_cache[cache_key] = positions_3d
+        else:
+            positions_3d = self._nucleon_cache[cache_key]
 
-        # Scale positions to fit within nucleus_radius minus nucleon_radius
-        positions = self._scale_positions(positions, nucleon_radius, nucleus_radius)
+        # Scale cached positions to fit current nucleus_radius
+        positions_3d = self._scale_positions_3d(positions_3d, nucleon_radius, nucleus_radius)
 
-        # Create mixed distribution: interleave protons and neutrons evenly
+        # Create mixed distribution: interleave protons and neutrons
         is_proton_flags = self._create_nucleon_distribution(total, protons)
 
-        # Sort nucleons by distance from center (outside first, inside last)
-        nucleons = self._sort_nucleons_by_distance(positions, is_proton_flags)
+        # Combine positions with proton flags and calculate projected 2D positions
+        nucleons = []
+        for i, (x, y, z) in enumerate(positions_3d):
+            # Simple perspective projection: z affects apparent size slightly
+            depth_scale = 1.0 + z * 0.15 / nucleus_radius if nucleus_radius > 0 else 1.0
+            proj_radius = nucleon_radius * max(0.7, min(1.3, depth_scale))
+            nucleons.append((z, i, cx + x, cy + y, proj_radius, is_proton_flags[i]))
 
-        # Draw nucleons from outside -> inside
-        for _, _, ox, oy, is_proton in nucleons:
-            x = cx + ox
-            y = cy + oy
-            self._draw_single_nucleon(painter, x, y, nucleon_radius, is_proton)
+        # Sort by z-depth: farthest (most negative z) drawn FIRST, closest LAST
+        nucleons.sort(key=lambda x: x[0])
+
+        # Draw nucleons from back to front
+        for _, _, px, py, proj_radius, is_proton in nucleons:
+            self._draw_single_nucleon(painter, px, py, proj_radius, is_proton)
+
+    @staticmethod
+    def _scale_positions_3d(positions: list[tuple[float, float, float]],
+                            nucleon_radius: float, nucleus_radius: float) -> list[tuple[float, float, float]]:
+        """Scale 3D positions to fit within nucleus boundary."""
+        if len(positions) <= 1:
+            return positions
+
+        max_dist = max(math.sqrt(x * x + y * y + z * z) for x, y, z in positions)
+        if max_dist > 0:
+            scale = (nucleus_radius - nucleon_radius) / max_dist
+            if scale < 1.0:
+                return [(x * scale, y * scale, z * scale) for x, y, z in positions]
+        return positions
+
+    @staticmethod
+    def _get_nucleon_positions(count: int, radius: float) -> list[tuple[float, float, float]]:
+        """Generate 3D sphere-packed positions for nucleons, returned as (x, y, z) with z as depth."""
+        if count <= 0:
+            return []
+        if count == 1:
+            return [(0.0, 0.0, 0.0)]
+
+        rng = random.Random(42)  # Fixed seed for stable animation
+
+        positions = []
+        # Estimate sphere radius needed to fit all nucleons with some packing efficiency
+        # Volume of sphere = 4/3 * pi * r^3
+        # Each nucleon occupies roughly a sphere of radius ~radius * 1.1 (close packing)
+        nucleon_volume = (4.0 / 3.0) * math.pi * (radius * 1.0) ** 3
+        total_volume = count * nucleon_volume / 0.55  # 0.55 packing efficiency for random close packing
+        sphere_r = ((3.0 * total_volume) / (4.0 * math.pi)) ** (1.0 / 3.0)
+
+        # Place center nucleon first
+        positions.append((0.0, 0.0, 0.0))
+
+        attempts = 0
+        max_attempts = count * 200
+
+        while len(positions) < count and attempts < max_attempts:
+            attempts += 1
+
+            # Random point inside sphere using rejection sampling
+            x = rng.uniform(-1, 1)
+            y = rng.uniform(-1, 1)
+            z = rng.uniform(-1, 1)
+            dist = math.sqrt(x * x + y * y + z * z)
+
+            if dist > 1.0 or dist < 0.1:
+                continue
+
+            # Scale to our nucleus sphere
+            px = x * sphere_r
+            py = y * sphere_r
+            pz = z * sphere_r
+
+            # Check collision with existing nucleons
+            min_dist = radius * 1.85  # Slightly less than 2*radius for tight packing
+            collision = False
+
+            for ox, oy, oz in positions:
+                d = math.sqrt((px - ox) ** 2 + (py - oy) ** 2 + (pz - oz) ** 2)
+                if d < min_dist:
+                    collision = True
+                    break
+
+            if not collision:
+                positions.append((px, py, pz))
+
+        # If we couldn't place all, just fill remaining randomly near center
+        while len(positions) < count:
+            x = rng.uniform(-0.5, 0.5)
+            y = rng.uniform(-0.5, 0.5)
+            z = rng.uniform(-0.5, 0.5)
+            positions.append((x * sphere_r * 0.5, y * sphere_r * 0.5, z * sphere_r * 0.5))
+
+        return positions
 
     @staticmethod
     def _create_nucleon_distribution(total: int, protons: int) -> list[bool]:
@@ -644,56 +739,6 @@ class BohrModelWidget(QWidget):
             int(nucleon_radius * 2), int(nucleon_radius * 2)
         )
 
-    @staticmethod
-    def _scale_positions(positions: list[tuple[float, float]], nucleon_radius: float, nucleus_radius: float) -> list[
-        tuple[float, float]]:
-        """Scale positions to fit within nucleus boundary."""
-        if len(positions) <= 1:
-            return positions
-
-        max_dist = max(math.sqrt(x * x + y * y) for x, y in positions)
-        if max_dist > 0:
-            scale = (nucleus_radius - nucleon_radius) / max_dist
-            if scale < 1.0:
-                return [(x * scale, y * scale) for x, y in positions]
-        return positions
-
-    @staticmethod
-    def _sort_nucleons_by_distance(positions: list[tuple[float, float]], is_proton_flags: list[bool]) -> list[tuple]:
-        """Sort nucleons by distance from center (outer first, inner last)."""
-        nucleons = []
-        for i, (ox, oy) in enumerate(positions):
-            dist = math.sqrt(ox * ox + oy * oy)
-            nucleons.append((dist, i, ox, oy, is_proton_flags[i]))
-
-        # Sort by distance DESCENDING (outer first, inner last)
-        nucleons.sort(key=lambda x: x[0], reverse=True)
-        return nucleons
-
-    @staticmethod
-    def _get_nucleon_positions(count: int, radius: float) -> list[tuple[float, float]]:
-        """Generate close-packed hexagonal positions for nucleons in concentric rings."""
-        if count <= 0:
-            return []
-        if count == 1:
-            return [(0.0, 0.0)]
-
-        positions = [(0.0, 0.0)]
-        ring = 1
-        while len(positions) < count:
-            # Hexagonal close packing: 6*n positions in ring n
-            n_in_ring = min(6 * ring, count - len(positions))
-            ring_radius = ring * radius * 1.85  # Tighter packing
-
-            for i in range(n_in_ring):
-                angle = 2 * math.pi * i / n_in_ring + (ring * 0.3)  # Stagger rings
-                x = ring_radius * math.cos(angle)
-                y = ring_radius * math.sin(angle)
-                positions.append((x, y))
-            ring += 1
-
-        return positions
-
 
 class ElementInfoPanel(QScrollArea):
     """Panel displaying detailed element information."""
@@ -721,7 +766,10 @@ class ElementInfoPanel(QScrollArea):
         self.category_value = self.create_info_row("Category:", "--")
         self.group_value = self.create_info_row("Group:", "--")
         self.period_value = self.create_info_row("Period:", "--")
+        self.discovery_year_value = self.create_info_row("Discovered:", "--")
+        self.discovered_by_value = self.create_info_row("Discovered By:", "--")
         self.state_value = self.create_info_row("State at RTP:", "--")
+        self.allotropes_value = self.create_info_row("Allotropes:", "--")
         self.density_value = self.create_info_row("Density:", "--")
         self.melting_value = self.create_info_row("Melting Point:", "--")
         self.boiling_value = self.create_info_row("Boiling Point:", "--")
@@ -944,11 +992,17 @@ class ElementInfoPanel(QScrollArea):
         density = element_data.get("density", "N/A")
         melting = element_data.get("melting_point", "N/A")
         boiling = element_data.get("boiling_point", "N/A")
+        discovery_year = element_data.get("discovery_year", "N/A")
+        discovered_by = element_data.get("discovered_by", "N/A")
+        allotropes = element_data.get("allotropes", None)
 
         self.mass_value.setText(self._format_value(mass))
         self.group_value.setText(self._format_value(group))
         self.period_value.setText(self._format_value(period))
+        self.discovery_year_value.setText(self._format_discovery_year(discovery_year))
+        self.discovered_by_value.setText(self._format_value(discovered_by))
         self.state_value.setText(self._format_state(state))
+        self.allotropes_value.setText(self._format_allotropes(allotropes))
         self.density_value.setText(self._format_density(density))
         self.melting_value.setText(self._format_temperature(melting))
         self.boiling_value.setText(self._format_temperature(boiling))
@@ -1004,6 +1058,26 @@ class ElementInfoPanel(QScrollArea):
     def _format_value(value) -> str:
         """Format a basic value, returning '--' for empty/invalid values."""
         return f"{value}" if value and value != "N/A" and value != "--" else "--"
+
+    @staticmethod
+    def _format_discovery_year(year) -> str:
+        """Format discovery year with BCE/CE indication."""
+        if year is None or year == "N/A":
+            return "--"
+        if isinstance(year, int):
+            if year < 0:
+                return f"{-year} BCE"
+            return str(year)
+        return str(year)
+
+    @staticmethod
+    def _format_allotropes(allotropes) -> str:
+        """Format allotropes list."""
+        if not allotropes:
+            return "--"
+        if isinstance(allotropes, (list, tuple)):
+            return ", ".join(str(a) for a in allotropes)
+        return str(allotropes)
 
     @staticmethod
     def _format_state(state) -> str:
@@ -1221,7 +1295,7 @@ class SearchDropdown(QFrame):
 
         self.list_widget = QListWidget()
         self.list_widget.setFrameShape(QFrame.Shape.NoFrame)
-        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list_widget.setMaximumHeight(280)
         # Aggressively remove every border and outline
@@ -1408,7 +1482,8 @@ class SearchDropdown(QFrame):
     def _update_dropdown_size(self):
         """Update dropdown size to match search input."""
         self.setFixedWidth(self.parent().search_input.width() if self.parent() else 280)
-        self.setFixedHeight(min(self.list_widget.count() * 44 + 16, 310))
+        total_height = sum(self.list_widget.item(i).sizeHint().height() for i in range(self.list_widget.count()))
+        self.setFixedHeight(total_height)
         self.show()
         self.raise_()
 
@@ -1601,7 +1676,8 @@ class PeriodicTableApp(QMainWindow):
 
         # Search dropdown (created after main layout to ensure proper parenting)
         self.search_dropdown.item_selected.connect(self.show_element_info)
-
+        self.installEventFilter(self)
+        QApplication.instance().installEventFilter(self)
         # Status bar
         self.status_bar.setStyleSheet("color: #BDC3C7;")
         self.setStatusBar(self.status_bar)
@@ -1756,9 +1832,21 @@ class PeriodicTableApp(QMainWindow):
         """Filter events to hide dropdown when clicking outside."""
         if event.type() == event.Type.MouseButtonPress:
             if self.search_dropdown.isVisible():
-                if not self.search_dropdown.geometry().contains(event.globalPosition().toPoint()):
-                    if obj != self.search_input:
-                        self.search_dropdown.hide()
+                click_pos = event.globalPosition().toPoint()
+                # Don't close if clicking inside the dropdown itself
+                if self.search_dropdown.geometry().contains(click_pos):
+                    return super().eventFilter(obj, event)
+                # Don't close if clicking on search input or its children
+                if isinstance(obj, QWidget) and (obj == self.search_input or self.search_input.isAncestorOf(obj)):
+                    return super().eventFilter(obj, event)
+                # Don't close if clicking on the search container (rounded frame)
+                search_container = self.search_input.parentWidget()
+                if search_container:
+                    local_pos = search_container.mapFromGlobal(click_pos)
+                    if search_container.rect().contains(local_pos):
+                        return super().eventFilter(obj, event)
+                # Click is truly outside — close it
+                self.search_dropdown.hide()
         return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event):
