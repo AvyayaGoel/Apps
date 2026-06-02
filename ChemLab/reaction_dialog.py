@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QWidget, QFrame,
                              QHBoxLayout, QTableWidget, QTableWidgetItem,
                              QLineEdit, QPushButton, QLabel, QSplitter,
                              QGroupBox, QHeaderView, QMessageBox, QComboBox)
+
 from ChemicalKeyboard import ChemicalKeyboard
 from chemlab_parser import ChemLabParser, get_element
 from compound_learner import CompoundLearner
@@ -215,7 +216,6 @@ class ReactionDialog(QDialog):
         self.setWindowIcon(QIcon(ICON_PATH))
 
         self.setModal(True)
-
         # Initialize CompoundLearner (trained on all compounds from DB)
         self.compound_learner = CompoundLearner(db=self.db)
         self._train_compound_learner()
@@ -985,7 +985,6 @@ class ReactionDialog(QDialog):
     def _get_suggestion_or_preserve(self, context_changed, was_suggested, clean_formula,
                                     detected_state_abbr, current_value, is_color):
         """Get new suggestion if context changed and value was auto-suggested/PubChem, or if empty, else preserve"""
-        field_type = 'color' if is_color else 'name'
         is_empty = not current_value or not current_value.strip()
 
         # Get new suggestion if: (context changed and was auto-suggested/PubChem) OR current is empty
