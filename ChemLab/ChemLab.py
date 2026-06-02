@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QLineEdit, QPushButton, QLabel,
                              QGroupBox, QHeaderView, QMessageBox,
                              QFrame, QGridLayout, QMenu)
+
 from chemlab_database import ChemLabDatabase
 from chemlab_parser import ChemLabParser, get_element
 from constants import (
@@ -280,7 +281,7 @@ class ChemLab(QMainWindow):
         try:
             dialog = ReactionDialog(self.db, reaction_id, self)
             dialog.reaction_saved.connect(self.on_dialog_reaction_saved)
-            dialog.exec()
+            dialog.open()
         except Exception as e:
             logging.error(f"Failed to open reaction dialog: {e}")
             self.toast.error(f"Failed to open reaction dialog: {e}")
