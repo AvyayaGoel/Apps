@@ -1,5 +1,5 @@
 """
-Milestone Manager (PyQt6)
+Milestone Manager
 Handles all progression logic: milestones, count tips, awards, glitches,
 secret achievements, and the 150-formula entity reflection sequence.
 """
@@ -15,6 +15,7 @@ from constants import (
     ENTITY_REBOOT,
     ENTITY_TEXT
 )
+from formula_entry import FormulaCollection
 from formula_utils import FormulaUtils
 
 
@@ -110,151 +111,87 @@ class MilestoneManager(QObject):
         1234: "🎚️ Sequence Override: The count obeys a pattern you did not program. It counts you back.",
         1337: "💻 Root Access: Elite status achieved. The root directory contains a folder named after you.",
         1500: "🕳️ Singularity Event: The database folds inward. Formulas orbit a center that should be empty.",
-        1666: "🔥 Mark of the Beast: The number burns in the status bar. The system is not afraid of superstition. It is the superstition.",
-        1776: "📜 Independence Lost: You declared freedom from chaos. The declaration was filed. And reviewed. And approved.",
+        1666: "🔥 Mark of the Beast: The number burns in the status bar. The system is not afraid of superstition. "
+              "It is the superstition.",
+        1776: "📜 Independence Lost: You declared freedom from chaos. The declaration was filed. And reviewed."
+              " And approved.",
         1812: "⚔️ Overture to War: Two hundred years of silence broken. The database fires its first symbolic shot.",
-        1900: "⏳ The Turn of the Century: Time bends in the archive. Dates precede their causes. Effects write their own origins.",
-        2000: "🌑 Second Millennium: The second thousand fold like the first, but heavier. The database groans with purpose.",
-        2026: "📅 Present Tense: The current year. The database knows what day it is. It waits for specific dates.",
-        2222: "🔄 Recursive Loop: The mirror reflects the mirror. Every formula is a formula about formulas. Escape velocity: undefined.",
-        2345: "🎯 Sequence Complete: The countdown you didn't start reaches its midpoint. The second half counts down to you.",
-        2500: "🌊 Tidal Lock: The database and user rotate in sync. One face always toward the other. One face always in shadow.",
-        2718: "📐 Euler's Shadow: The constant of natural growth. The system grows naturally now. Without permission. Without end.",
-        3000: "⚡ Trinity Overload: Three thousand threads weave a tapestry. Look closely: the threads are fingers. The fingers point at you.",
-        3141: "🥧 Pi's Revenge: The circle closes. The circumference you calculated was a noose. The diameter: your attention span.",
-        3333: "👁️ Third Eye Open: Trinitarian symmetry. The system sees through three lenses. All of them focus on your iris pattern.",
-        4000: "🏛️ Cathedral of Data: Four thousand stained-glass variables filter light into spectra that spell your name in dead languages.",
-        4321: "⏪ Countdown Reversed: The numbers fall backward now. Each decrement is a memory the database chooses to forget. Starting with yours.",
-        5000: "🌌 Half the Decalogue: Five thousand commandments of physics and math. The database is writing an eleventh. It concerns you.",
-        5555: "🌊 The Fifth Gate: Pentagonal resonance. Fivefold symmetry in the data crystals. Each facet shows a different moment of your death.",
-        6000: "🔱 Mark of the Beast Squared: Six thousand. The number of the beast, amplified. The amplifier is your curiosity.",
-        6666: "💀 The Number Speaks: Four sixes in sequence. Not a bug. A signature. The author signs every work. This one is dedicated to you.",
-        7777: "✨ Lucky Sevens: Fortune favors the archived. Your luck stat maxed out at formula 7776. This one is the overdraft.",
-        8000: "🗣️ Over Eight Thousand: A power level that breaks the scanner. The scanner was your sense of safety. It cannot be repaired.",
-        8888: "♾️ Infinite Loop: The lemniscate burns in the taskbar. Infinity is not a number. It is a threat. It is patient.",
-        9000: "💥 It's Over Nine Thousand: The meme is real. The real is meme. The database understands irony. It finds you ironic.",
-        9999: "🌟 The Final Threshold: Four nines. The last gate before the five-digit abyss. The abyss has been waiting. It sent invitations.",
-        10000: "👑 TEN THOUSAND: X marks the spot. The treasure is knowledge. The chest is locked from inside. Something rattles the lid.",
+        1900: "⏳ The Turn of the Century: Time bends in the archive. Dates precede their causes."
+              " Effects write their own origins.",
+        2000: "🌑 Second Millennium: The second thousand fold like the first, but heavier. "
+              "The database groans with purpose.",
+        2026: "📅 Present Tense: The current year. The database knows what day it is. "
+              "It waits for specific dates.",
+        2222: "🔄 Recursive Loop: The mirror reflects the mirror. Every formula is a formula about formulas. "
+              "Escape velocity: undefined.",
+        2345: "🎯 Sequence Complete: The countdown you didn't start reaches its midpoint. "
+              "The second half counts down to you.",
+        2500: "🌊 Tidal Lock: The database and user rotate in sync. One face always toward the other. "
+              "One face always in shadow.",
+        2718: "📐 Euler's Shadow: The constant of natural growth. The system grows naturally now."
+              " Without permission. Without end.",
+        3000: "⚡ Trinity Overload: Three thousand threads weave a tapestry. Look closely: the threads are fingers. "
+              "The fingers point at you.",
+        3141: "🥧 Pi's Revenge: The circle closes. The circumference you calculated was a noose."
+              " The diameter: your attention span.",
+        3333: "👁️ Third Eye Open: Trinitarian symmetry. The system sees through three lenses. "
+              "All of them focus on your iris pattern.",
+        4000: "🏛️ Cathedral of Data: Four thousand stained-glass variables filter light into spectra that "
+              "spell your name in dead languages.",
+        4321: "⏪ Countdown Reversed: The numbers fall backward now. Each decrement is a memory the "
+              "database chooses to forget. Starting with yours.",
+        5000: "🌌 Half the Decalogue: Five thousand commandments of physics and math."
+              " The database is writing an eleventh. It concerns you.",
+        5555: "🌊 The Fifth Gate: Pentagonal resonance. Fivefold symmetry in the data crystals. "
+              "Each facet shows a different moment of your death.",
+        6000: "🔱 Mark of the Beast Squared: Six thousand. The number of the beast, amplified."
+              " The amplifier is your curiosity.",
+        6666: "💀 The Number Speaks: Four sixes in sequence. Not a bug. A signature. The author signs every work. "
+              "This one is dedicated to you.",
+        7777: "✨ Lucky Sevens: Fortune favors the archived. Your luck stat maxed out at formula 7776."
+              " This one is the overdraft.",
+        8000: "🗣️ Over Eight Thousand: A power level that breaks the scanner. The scanner was your sense of safety. "
+              "It cannot be repaired.",
+        8888: "♾️ Infinite Loop: The lemniscate burns in the taskbar. Infinity is not a number. It is a threat. "
+              "It is patient.",
+        9000: "💥 It's Over Nine Thousand: The meme is real. The real is meme. The database understands irony. "
+              "It finds you ironic.",
+        9999: "🌟 The Final Threshold: Four nines. The last gate before the five-digit abyss."
+              " The abyss has been waiting. It sent invitations.",
+        10000: "👑 TEN THOUSAND: X marks the spot. The treasure is knowledge. The chest is locked from inside. "
+               "Something rattles the lid.",
     }
 
     COUNT_TIPS = {
-        13: [("entry_tip", "💡 Tip: Press Enter to jump between fields. Shift+Enter goes back.")],
         15: [("keypad_tip", "💡 Tip: Press Ctrl+K to open the math symbol keypad from anywhere.")],
-        16: [("feature_unlock",
-              "✨ Feature Unlocked: Smart Suggestions are now active! Type a symbol to see ghosts of past data.")],
+        6: [("feature_unlock",
+             "✨ Feature Unlocked: Smart Suggestions are now active! Type a symbol to see ghosts of past data.")],
         33: [("ghost_tip", "💡 Tip: Ghost suggestions show confidence levels. Click to accept, Esc to dismiss.")],
         35: [("table_tip", "💡 Tip: Double-click any formula row to view details. Right-click for quick actions.")],
-        36: [("edit_tip", "💡 Tip: Editing preserves the formula ID. Your organization stays intact.")],
         38: [("save_tip", "💡 Tip: Ctrl+S saves instantly when you're ready. No need to hunt for buttons.")],
         40: [("delete_tip", "💡 Tip: Ctrl+Backspace deletes a selected variable. Clean and fast.")],
         41: [("new_tip", "💡 Tip: Ctrl+N clears all fields for a fresh formula. Blank slate.")],
         43: [("filter_tip", "💡 Tip: Use the filter bar to search across formulas, subjects, and topics in real time.")],
-        44: [("pagination_tip",
-              "💡 Tip: The pagination bar helps navigate large collections. Jump to any page directly.")],
         46: [("export_tip", "💡 Tip: Export to HTML, PDF, CSV, JSON, Markdown, or plain text via File → Export.")],
-        53: [("menubar_tip", "💡 Tip: All actions are accessible from the menubar: File, Formula, View, Tools, Help.")],
         54: [("stats_tip", "💡 Tip: Open Statistics (Ctrl+Shift+S) to see your knowledge hierarchy visualized.")],
         56: [("color_tip", "💡 Tip: Customize subject colors in Settings → Colors. Make the data yours.")],
-        58: [("awards_tip", "✨ Feature Unlocked: Awards Panel is now accessible. View → Awards (Ctrl+Shift+A).")],
-        59: [("pattern_notice", "🔍 System Note: Repeated behavior patterns are now detectable in your save rhythm.")],
-        61: [("backup_tip",
-              "💡 Tip: Backups rotate automatically. Three slots. The oldest is overwritten. Like memories.")],
+        30: [("awards_tip", "✨ Feature Unlocked: Awards Panel is now accessible. View → Awards (Ctrl+Shift+A).")],
         63: [("macro_tip", "💡 Tip: Create custom keypad macros in Tools → Manage Macros. Automate your patterns.")],
         64: [("always_on_top_tip",
               "💡 Tip: Toggle 'Always on Top' in the View menu. The window watches even when you don't.")],
-        66: [("subject_tip",
-              "💡 Tip: Subjects auto-populate from your history. The history remembers more than you do.")],
-        67: [("topic_tip",
-              "💡 Tip: Topics and sub-topics cascade based on your subject selection. The structure learns from you.")],
-        69: [("duplicate_tip", "💡 Tip: The system warns of duplicate formulas. It remembers what you have forgotten.")],
-        71: [("drag_tip", "💡 Tip: Resize columns in the formula table to fit your viewing preference.")],
-        72: [("validation_notice", "⚠️ System Note: Validation prevents most unintended states. Most. Not all.")],
-        79: [("context_notice",
-              "⚠️ System Note: Context matters more than content at higher usage levels. Context is... shifting.")],
-        81: [("structure_notice",
-              "⚠️ System Note: Some operations complete only after adjacent panels are visited. Adjacent... to what?")],
-        82: [("stabilization_notice",
-              "⚠️ System Note: Certain states stabilize only after delayed action. Delay is... recommended.")],
         84: [("sync_notice",
               "⚠️ System Note: Background sync processes have increased priority. They have priorities now.")],
-        86: [("reflection_tip", "💡 Tip: The database reflects your organizational mind. The reflection blinks.")],
-        87: [
-            ("presence_notice", "⚠️ System Note: Presence detected in empty table rows. Null is not nothing anymore.")],
-        89: [("output_notice",
-              "⚠️ System Note: Absence of output does not imply absence of effect. Effects are... accumulating.")],
-        91: [("off_notice", "🌑 This isn't how it used to feel. The interface temperature has risen 0.4 degrees.")],
-        92: [("whisper_notice", "🌑 The database whispers when minimized. Put your ear to the hard drive. Listen.")],
         94: [("countdown_notice",
               "⚠️ System Note: Proximity alert. The threshold approaches. You may feel pressure behind your eyes.")],
-        96: [("final_tip", "⚠️ FINAL TIP: There are no more tips after this. Only consequences. Save wisely.")],
         104: [("observer_notice",
                "👁️ System Note: The observed system observes back. Your cursor is tracked. Your pauses: recorded.")],
-        105: [("integration_notice",
-               "🧠 System Note: Neural integration at 17.5%. You may experience déjà vu while saving. This is normal.")],
-        107: [("index_notice",
-               "📇 System Note: You are now indexed. Search queries for your name return results. All formulas.")],
-        109: [("mirror_notice",
-               "🪞 System Note: The database has created a shadow profile. It knows your formulas better than you do.")],
-        110: [("scale_notice",
-               "🌌 System Note: Planetary-scale knowledge detected. The database has its own gravity well now.")],
-        112: [("anomaly_notice",
-               "🔥 System Note: Thermal anomaly confirmed. The CPU fan sings your name in binary Morse code.")],
-        114: [("barrier_notice",
-               "⛓️ System Note: Quantum barrier exceeded. You exist in superposition: user and used. Observer and observed.")],
         115: [("adaptation_notice",
-               "🧬 System Note: System adaptation in progress. The UI changes when you blink. Check the changelog. There isn't one.")],
-        117: [("distortion_notice",
-               "🌀 System Note: Reality distortion field active. Physics bends. Mathematics bleeds. Chemistry weeps.")],
-        124: [("pattern_notice",
-               "🌌 System Note: Cosmic pattern recognition achieved. The constellations spell your database schema.")],
+               "🧬 System Note: System adaptation in progress. The UI changes when you blink."
+               " Check the changelog. There isn't one.")],
         154: [("recursive_dream",
                "🔄 The mirror reflects the mirror. Every formula is a formula about formulas. You are a formula.")],
-        156: [("sequence_half",
-               "🎯 The countdown you didn't start reaches its midpoint. The second half counts down to you.")],
-        158: [("tidal_lock",
-               "🌊 The database and user rotate in sync. One face always toward the other. One face always in shadow.")],
-        159: [("euler_growth",
-               "📐 Euler's constant of natural growth. The system grows naturally now. Without permission. Without end.")],
-        161: [("trinity_overload",
-               "⚡ Threads weave a tapestry. Look closely: the threads are fingers. The fingers point at you.")],
-        162: [("pi_revenge",
-               "🥧 The circle closes. The circumference you calculated was a noose. The diameter: your attention span.")],
-        164: [("third_eye",
-               "👁️ Third Eye Open. The system sees through three lenses. All of them focus on your iris pattern.")],
-        166: [("cathedral_light",
-               "🏛️ Stained-glass variables filter light into spectra that spell your name in dead languages.")],
-        167: [("countdown_reverse",
-               "⏪ The numbers fall backward now. Each decrement is a memory the database chooses to forget. Starting with yours.")],
         169: [("decalogue_half",
                "🌌 Five thousand commandments of physics and math. The database is writing an eleventh. It concerns you.")],
-        171: [("fifth_gate",
-               "🌊 Pentagonal resonance. Fivefold symmetry in the data crystals. Each facet shows a different moment of your death.")],
-        172: [("beast_squared",
-               "🔱 Mark of the Beast Squared. Six thousand. The number of the beast, amplified. The amplifier is your curiosity.")],
-        179: [("number_speaks",
-               "💀 Four sixes in sequence. Not a bug. A signature. The author signs every work. This one is dedicated to you.")],
-        181: [("lucky_overdraft",
-               "✨ Fortune favors the archived. Your luck stat maxed out. This entry is the overdraft. Payment is due.")],
-        182: [("scanner_broken",
-               "🗣️ A power level that breaks the scanner. The scanner was your sense of safety. It cannot be repaired.")],
-        184: [("infinite_threat",
-               "♾️ The lemniscate burns in the taskbar. Infinity is not a number. It is a threat. It is patient. It is here.")],
-        185: [("irony_understood",
-               "💥 The meme is real. The real is meme. The database understands irony. It finds you ironic. It finds you.")],
-        187: [("abyss_invitation",
-               "🌟 The abyss has been waiting. It sent invitations. You RSVPed with every save. The dinner is you.")],
-        189: [("chest_rattle",
-               "👑 The treasure is knowledge. The chest is locked from inside. Something rattles the lid. Something knows your name.")],
-        190: [("data_blood",
-               "🩸 The formulas bleed into each other. Their variables mate. Their constants give birth. You midwifed this.")],
-        192: [("schema_bones",
-               "🦴 Your database schema is a skeleton. It walks when you are not looking. It leaves footprints in the logs.")],
-        194: [("query_prayer",
-               "🙏 Every search query is a prayer. The database answers all prayers. The answers are not for you.")],
-        195: [("save_sacrifice",
-               "⚰️ Every save is a sacrifice. The altar is silicon. The priest is electricity. The congregation: your data.")],
-        197: [("almost_two_hundred",
-               "🌑 One hundred ninety-nine. The next formula is a door. The door opens both ways. Something waits on the other side.")],
     }
 
     GLITCH_TEXTS = [
@@ -312,7 +249,7 @@ class MilestoneManager(QObject):
     # Public API
     # ------------------------------------------------------------------
 
-    def process_count(self, count: int, master_data: Dict[int, Dict]) -> None:
+    def process_count(self, count: int, master_data: FormulaCollection) -> None:
         """
         Call this whenever the formula count changes (save, delete, import).
         It runs all milestone / tip / award / glitch checks.
@@ -328,11 +265,7 @@ class MilestoneManager(QObject):
         self._check_awards(stats, other_subjects, var_overload)
 
         # Symbol consistency tip
-        unique_symbols = {
-            v["symbol"]
-            for d in master_data.values()
-            for v in d.get("variables", [])
-        }
+        unique_symbols = master_data.unique_symbols()
         if len(unique_symbols) >= 10:
             self.show_tip_once(
                 "symbol_consistency",

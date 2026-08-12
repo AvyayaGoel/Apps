@@ -25,6 +25,8 @@ from PyQt6.QtWidgets import (
     QGraphicsDropShadowEffect
 )
 
+from constants import BORDER_LEFT_NONE
+
 
 # ==========================================================
 # Notification Widget
@@ -33,10 +35,10 @@ class NotificationWidget(QFrame):
     """Single notification popup."""
 
     STYLES = {
-        "info": {"border": "#17a2b8", "icon": "ℹ️", "title": "#17a2b8"},
-        "success": {"border": "#28a745", "icon": "✅", "title": "#28a745"},
-        "warning": {"border": "#ffc107", "icon": "⚠️", "title": "#ffc107"},
-        "danger": {"border": "#dc3545", "icon": "🚫", "title": "#dc3545"},
+        "info": {"border": "#17a2b8", "icon": "ℹ️"},
+        "success": {"border": "#28a745", "icon": "✅"},
+        "warning": {"border": "#ffc107", "icon": "⚠️"},
+        "danger": {"border": "#dc3545", "icon": "🚫"},
     }
 
     def __init__(self, title, message, bootstyle="info", duration=3000, manager=None):
@@ -49,7 +51,7 @@ class NotificationWidget(QFrame):
         self._bootstyle = bootstyle
 
         self._is_hovered = False
-        self._fading = False
+        self.fading = False
         self._active = False
 
         self.setWindowFlags(
@@ -66,6 +68,16 @@ class NotificationWidget(QFrame):
 
         self._build_ui(title, message)
         self._setup_shadow()
+
+        self._fade_in_anim = QPropertyAnimation(
+            self,
+            b"windowOpacity"
+        )
+
+        self._slide_anim = QPropertyAnimation(
+            self,
+            b"geometry"
+        )
 
     # ---------------- UI ---------------- #
 
@@ -92,16 +104,19 @@ class NotificationWidget(QFrame):
         layout.setContentsMargins(12, 10, 10, 10)
 
         icon = QLabel(style["icon"])
+        icon.setStyleSheet(BORDER_LEFT_NONE)
         layout.addWidget(icon)
 
         content = QVBoxLayout()
 
         title_lbl = QLabel(f"<b>{title}</b>")
+        title_lbl.setStyleSheet(BORDER_LEFT_NONE)
         content.addWidget(title_lbl)
 
         msg_lbl = QLabel(message)
         msg_lbl.setWordWrap(True)
         msg_lbl.setMaximumWidth(260)
+        msg_lbl.setStyleSheet(BORDER_LEFT_NONE)
         content.addWidget(msg_lbl)
 
         self._progress = QProgressBar()
@@ -138,7 +153,7 @@ class NotificationWidget(QFrame):
         if self._is_hovered:
             return
 
-        if self._fading:
+        if self.fading:
             return
 
         self._remaining -= delta_ms
@@ -155,19 +170,10 @@ class NotificationWidget(QFrame):
         self.raise_()
         self.setWindowOpacity(0)
 
-        self._fade_in_anim = QPropertyAnimation(
-            self,
-            b"windowOpacity"
-        )
         self._fade_in_anim.setDuration(300)
         self._fade_in_anim.setStartValue(0)
         self._fade_in_anim.setEndValue(1)
         self._fade_in_anim.start()
-
-        self._slide_anim = QPropertyAnimation(
-            self,
-            b"geometry"
-        )
         self._slide_anim.setDuration(300)
         self._slide_anim.setEasingCurve(
             QEasingCurve.Type.OutCubic
@@ -190,7 +196,7 @@ class NotificationWidget(QFrame):
         )
 
     def _activate_lifecycle(self):
-        if self._fading:
+        if self.fading:
             return
 
         if self._active:
@@ -202,10 +208,10 @@ class NotificationWidget(QFrame):
         self._dismiss()
 
     def _dismiss(self):
-        if self._fading:
+        if self.fading:
             return
 
-        self._fading = True
+        self.fading = True
         self._active = False
 
         self._fade_out_anim = QPropertyAnimation(
@@ -226,7 +232,7 @@ class NotificationWidget(QFrame):
         self.hide()
 
         if self._manager:
-            self._manager._remove_notification(self)
+            self._manager.remove_notification(self)
 
         self.deleteLater()
 
@@ -319,7 +325,7 @@ class NotificationManager:
         for notification in self._notifications[:]:
             notification.update_progress(16)
 
-    def _remove_notification(self, notification):
+    def remove_notification(self, notification):
 
         if notification in self._notifications:
             self._notifications.remove(notification)
@@ -358,7 +364,7 @@ class NotificationManager:
 
     def _reposition(self):
         for i, notification in enumerate(self._notifications):
-            if notification._fading:
+            if notification.fading:
                 continue
 
             x, y = self._compute_position(i)

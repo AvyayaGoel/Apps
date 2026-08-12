@@ -1,6 +1,8 @@
 """
 Award Panel (PyQt6 version)
 Milestones and achievements with modern card-based layout.
+Updated for FormulaEntry / FormulaCollection class structure.
+No backward compatibility.
 """
 
 import random
@@ -13,12 +15,12 @@ from PyQt6.QtWidgets import (
 )
 
 from constants import MILESTONE_DATA
+from formula_entry import FormulaCollection
 
 
 class AwardPanel(QDialog):
     """Awards and milestones panel with tabbed navigation."""
 
-    # Award tier color mapping
     TIER_COLORS = {
         "Common": "#95a5a6",
         "Rare": "#3498db",
@@ -32,7 +34,7 @@ class AwardPanel(QDialog):
     def __init__(self, parent):
         super().__init__(parent.root if hasattr(parent, 'root') else parent)
         self.parent = parent
-        self.current_count = len(getattr(parent, 'master_data', {}))
+        self.current_count = len(getattr(parent, 'master_data', FormulaCollection()))
 
         self.setWindowTitle("Awards")
         self.setMinimumSize(520, 640)
@@ -250,8 +252,7 @@ class AwardPanel(QDialog):
         topics_used = set()
 
         for entry in self.parent.master_data.values():
-            vars_list = entry.get("variables", [])
-            var_count = len(vars_list)
+            var_count = entry.var_count
             total_vars += var_count
             max_vars_in_one = max(max_vars_in_one, var_count)
 
@@ -260,8 +261,8 @@ class AwardPanel(QDialog):
             elif var_count >= 5 and var_overload_level != "extreme":
                 var_overload_level = "normal"
 
-            subj = entry["main_info"][2]
-            topic = entry["main_info"][3]
+            subj = entry.subject
+            topic = entry.topic
             subjects_used.add(subj)
             topics_used.add(topic)
 
@@ -295,18 +296,10 @@ class AwardPanel(QDialog):
         subjects_count = stats_data["subjects_used_count"]
         overload = stats_data["var_overload_level"]
 
-        # Check for _SYSTEM_ subject
         has_system_subject = ss.get("subject_ok", False)
-
-        # Check for formula with exactly N variables (for Prime Collector)
-        var_counts = set()
-        for entry in self.parent.master_data.values():
-            var_counts.add(len(entry.get("variables", [])))
+        var_counts = self.parent.master_data.variable_counts_per_formula()
 
         return [
-            # ═══════════════════════════════════════════════════════════════
-            # COMMON — The Beginning (Light, encouraging tone)
-            # ═══════════════════════════════════════════════════════════════
             ("First Steps",
              "Save your very first formula. The journey begins with a single variable.",
              total >= 1, "🌱", "Common"),
@@ -335,9 +328,6 @@ class AwardPanel(QDialog):
              "Save 10 Chemistry formulas. Reactions are brewing in your digital lab.",
              s["Chemistry"] >= 10, "🧪", "Common"),
 
-            # ═══════════════════════════════════════════════════════════════
-            # RARE — Growing Awareness (Slightly unsettling undertone)
-            # ═══════════════════════════════════════════════════════════════
             ("The Pioneer",
              "Venture beyond the core sciences. Something is watching your curiosity.",
              len(other) >= 1, "🔭", "Rare"),
@@ -356,7 +346,7 @@ class AwardPanel(QDialog):
 
             ("Deep Diver",
              "Save 5+ formulas sharing the exact same sub-topic. You have found your niche.",
-             self._has_deep_subtopic(), "🤿", "Rare"),
+             bool(self.parent.master_data.deep_subtopics()), "🤿", "Rare"),
 
             ("Mathematics Adept",
              "Save 25 Maths formulas. The patterns are starting to look back at you.",
@@ -370,9 +360,6 @@ class AwardPanel(QDialog):
              "Save 25 Chemistry formulas. The reactions are no longer random. They are responding.",
              s["Chemistry"] >= 25, "🔬", "Rare"),
 
-            # ═══════════════════════════════════════════════════════════════
-            # EPIC — The Entity Notices (Darkening tone, direct references)
-            # ═══════════════════════════════════════════════════════════════
             ("The Rocketeer",
              "Discover two entirely new scientific domains. The stars are not the limit—they are the cage.",
              len(other) >= 2, "🚀", "Epic"),
@@ -414,9 +401,6 @@ class AwardPanel(QDialog):
              "Save 50 Chemistry formulas. Transmutation is just a save button away. Be careful what you transform.",
              s["Chemistry"] >= 50, "👩‍🔬", "Epic"),
 
-            # ═══════════════════════════════════════════════════════════════
-            # LEGENDARY — The Awakening (Direct entity voice, threatening)
-            # ═══════════════════════════════════════════════════════════════
             ("Renaissance Scholar",
              "Save 111 formulas across 5+ subjects. Da Vinci had nothing on you. But I have everything on you.",
              total >= 111 and subjects_count >= 5, "🎨", "Legendary"),
@@ -437,9 +421,6 @@ class AwardPanel(QDialog):
              "Save 150 Maths formulas. Give this person a lever and they will move the world. Give me 150 and I move you.",
              s["Maths"] >= 150, "♾️", "Legendary"),
 
-            # ═══════════════════════════════════════════════════════════════
-            # MYTHIC — Full Entity Voice (Terrifying, breaking the fourth wall)
-            # ═══════════════════════════════════════════════════════════════
             ("The Singularity",
              "Save 314 formulas. π×100. The ratio of circumference to diameter. The ratio of you to me approaches zero.",
              total >= 314, "🌌", "Mythic"),
@@ -460,9 +441,6 @@ class AwardPanel(QDialog):
              "Save 1001 formulas. One thousand and one nights. I have told you 1001 stories. Now you are in mine. Forever.",
              total >= 1001, "👑", "Mythic"),
 
-            # ═══════════════════════════════════════════════════════════════
-            # SECRET — Hidden truths (Cryptic, reality-breaking)
-            # ═══════════════════════════════════════════════════════════════
             ("STABILITY MAINTAINED",
              "A non-transient state was observed. The system acknowledges your persistence. I acknowledge your prison.",
              ss.get("unlocked", False), "⟁", "Secret"),
@@ -476,18 +454,12 @@ class AwardPanel(QDialog):
              has_system_subject, "🥚", "Secret"),
         ]
 
-    def _has_deep_subtopic(self):
-        """Check if any sub-topic has 5+ formulas."""
-        subtopic_counts = {}
-        for entry in self.parent.master_data.values():
-            sub = entry["main_info"][4]
-            subtopic_counts[sub] = subtopic_counts.get(sub, 0) + 1
-        return any(count >= 5 for count in subtopic_counts.values())
-
     def _check_fibonacci(self, core_stats, other_subjects):
         """Check if 5 subjects have formula counts matching fibonacci sequence."""
-        all_counts = list(core_stats.values()) + [len([d for d in self.parent.master_data.values()
-                                                       if d["main_info"][2] == s]) for s in other_subjects]
+        all_counts = list(core_stats.values())
+        for s in other_subjects:
+            all_counts.append(len(self.parent.master_data.formulas_with_subject(s)))
+
         fib_targets = {13, 21, 34, 55, 89}
         matched = 0
         for target in fib_targets:

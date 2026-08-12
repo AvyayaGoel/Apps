@@ -4,13 +4,13 @@ Mathematical symbol keypad with clean layout.
 """
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QCursor, QFontMetrics
+from PyQt6.QtGui import QCursor, QFontMetrics, QIcon
 from PyQt6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QVBoxLayout, QWidget, QSizePolicy
 )
 
-from constants import SYMBOL_SETS
+from constants import SYMBOL_SETS, ICON_PATH
 
 
 class KeypadWindow(QWidget):
@@ -29,7 +29,7 @@ class KeypadWindow(QWidget):
             Qt.WindowType.WindowDoesNotAcceptFocus
         )
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-
+        self.setWindowIcon(QIcon(ICON_PATH))
         self.setWindowTitle("Symbol Keypad")
 
         self._apply_styles()
