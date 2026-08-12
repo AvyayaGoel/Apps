@@ -1,17 +1,17 @@
-import os
-import sys
 import json
 import math
+import os
+import sys
 import threading
 import time
+import urllib.parse
 from collections import defaultdict
 from tkinter import Tk
-import urllib.parse
 
 import pygame
 from rdkit import RDLogger
-from rdkit.Chem import rdCoordGen
 from rdkit.Chem import AllChem
+from rdkit.Chem import rdCoordGen
 
 RDLogger.logger().setLevel(RDLogger.CRITICAL)
 
@@ -33,7 +33,7 @@ clock = pygame.time.Clock()
 
 def get_resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
-    base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
+    base_path = getattr(sys, '_MEIPASS', os.path.abspath(".."))
     return os.path.join(base_path, relative_path)
 
 
