@@ -2,6 +2,8 @@
 Centralized constants for the Calculus Console application (PyQt6 version).
 This file contains all shared constants used across multiple modules.
 """
+import os
+import sys
 
 # =============================================================================
 # UI TEXT CONSTANTS
@@ -13,6 +15,16 @@ ALL_TOPICS = "All Topics"
 ALL_SUB_TOPICS = "All Sub-Topics"
 
 FORMULA_DIALOG_STYLESHEET = "color: #888; font-size: 10px; font-weight: bold; letter-spacing: 1px;"
+BORDER_LEFT_NONE = "border-left: none;"
+
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and PyInstaller """
+    base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
+
+
+ICON_PATH = resource_path("Calculus Console Icon.png")
 # =============================================================================
 # FONT CONSTANTS 
 # =============================================================================

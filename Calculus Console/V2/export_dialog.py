@@ -2,6 +2,8 @@
 Export Manager (PyQt6)
 Handles exporting formulas to multiple formats with a hierarchical
 subject/topic/sub-topic filter tree. Uses PyQt6's built-in QPrinter for PDF.
+Updated for FormulaEntry / FormulaCollection class structure.
+No backward compatibility.
 """
 
 import csv
@@ -20,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 from constants import NO_DIMENSION_UNITS
+from formula_entry import FormulaCollection
 
 
 # ── Data Structure for Hierarchy ──
@@ -61,11 +64,9 @@ class HierarchyNode:
         if not self.checkbox or self.checkbox.checkState() == Qt.CheckState.Unchecked:
             return set()
 
-        # Leaf node (sub-topic): return its own IDs
         if not self.children:
             return set(self.formula_ids)
 
-        # Non-leaf: aggregate ONLY from checked children
         ids = set()
         for child in self.children.values():
             ids.update(child.get_selected_ids())
@@ -104,7 +105,7 @@ class ExportManager:
         }.get(fmt, "All files (*.*)")
 
     @classmethod
-    def export(cls, master_data: Dict, file_path: str, fmt: str) -> None:
+    def export(cls, master_data: FormulaCollection, file_path: str, fmt: str) -> None:
         handlers = {
             "html": cls._export_to_html, "pdf": cls._export_to_pdf,
             "txt": cls._export_to_txt, "csv": cls._export_to_csv,
@@ -116,36 +117,34 @@ class ExportManager:
         handler(master_data, file_path)
 
     @staticmethod
-    def _build_html_content(master_data: Dict) -> str:
+    def _build_html_content(master_data: FormulaCollection) -> str:
         total = len(master_data)
-        sorted_data = sorted(master_data.items(), key=lambda x: int(x[0]))
+        entries = sorted(master_data.values(), key=lambda e: e.display_id)
 
         body_parts = []
-        for fid, data in sorted_data:
-            info = data["main_info"]
-            formula_text = html.escape(info[1]).replace("\n", "<br>")
-            subject = html.escape(info[2])
-            topic = html.escape(info[3])
-            sub_topic = html.escape(info[4])
+        for entry in entries:
+            formula_text = html.escape(entry.formula_text).replace("\n", "<br>")
+            subject = html.escape(entry.subject)
+            topic = html.escape(entry.topic)
+            sub_topic = html.escape(entry.display_sub_topic)
 
             vars_html = ""
-            if data.get("variables"):
+            if entry.variables:
                 var_lines = []
-                for var in data["variables"]:
-                    sym, name, unit = html.escape(var["symbol"]), html.escape(var["name"]), html.escape(var["unit"])
+                for var in entry.variables:
+                    sym, name, unit = html.escape(var.symbol), html.escape(var.name), html.escape(var.unit)
                     text = f"{sym} means {name}" if unit.lower() in NO_DIMENSION_UNITS else f"{sym} means {name} with unit {unit}"
                     var_lines.append(f'<div class="variable">• {text}</div>')
                 vars_html = f'<div class="variables"><b>Variables:</b>\n{"".join(var_lines)}\n</div>\n'
 
             notes_html = ""
-            notes = info[5] if len(info) > 5 else ""
-            if notes and notes.strip():
-                notes_escaped = html.escape(notes).replace("\n", "<br>")
+            if entry.has_notes:
+                notes_escaped = html.escape(entry.notes).replace("\n", "<br>")
                 notes_html = f'<div class="notes"><b>Notes:</b><br>{notes_escaped}</div>\n'
 
             body_parts.append(f"""
     <div class="formula">
-        <div class="formula-id">#{fid}</div>
+        <div class="formula-id">#{entry.display_id}</div>
         <div class="formula-text">{formula_text}</div>
         {notes_html}
         <div class="metadata">Subject: {subject} | Topic: {topic} | Sub-Topic: {sub_topic}</div>
@@ -160,32 +159,11 @@ class ExportManager:
     <link href="https://fonts.googleapis.com/css2?family=Cambria+Math&family=STIX+Two+Math&family=DejaVu+Sans&display=swap" rel="stylesheet">
     <style>
         body {{ font-family: 'Cambria Math','STIX Two Math','DejaVu Sans','Times New Roman',Arial,sans-serif; margin:40px; line-height:1.6; font-size:14px; }}
-        .title-page {{
-            page-break-after: always;
-            text-align: center;
-            margin-top: 300px;
-        }}
-        
-        .title-inner {{
-            font-size: 28pt;
-            font-weight: bold;
-        }}
-        .formula {{
-            margin-bottom:30px;
-            page-break-inside: avoid;
-            break-inside: avoid;
-        }}
+        .title-page {{ page-break-after: always; text-align: center; margin-top: 300px; }}
+        .title-inner {{ font-size: 28pt; font-weight: bold; }}
+        .formula {{ margin-bottom:30px; page-break-inside: avoid; break-inside: avoid; }}
         .formula-id {{ font-size:16px; font-weight:bold; color:#333; }}
-        .formula-text {{
-            font-size:15pt;
-            margin:10px 0;
-            background:#f5f5f5;
-            padding:15px;
-            border-radius:5px;
-            font-family:'Cambria Math','STIX Two Math',serif;
-            line-height:1.5;
-            white-space: pre-wrap;
-        }}
+        .formula-text {{ font-size:15pt; margin:10px 0; background:#f5f5f5; padding:15px; border-radius:5px; font-family:'Cambria Math','STIX Two Math',serif; line-height:1.5; white-space: pre-wrap; }}
         .metadata {{ font-size:12px; color:#666; margin:5px 0; }}
         .variables {{ margin-top:10px; }}
         .variable {{ font-size:12px; margin-left:20px; color:#555; }}
@@ -195,22 +173,19 @@ class ExportManager:
 </head>
 <body>
     <div class="title-page">
-        <div class="title-inner">
-            Formulas #{total}
-        </div>
+        <div class="title-inner">Formulas #{total}</div>
     </div>
-    
-{"".join(body_parts)}
+    {"".join(body_parts)}
 </body>
 </html>"""
 
     @classmethod
-    def _export_to_html(cls, master_data: Dict, path: str) -> None:
+    def _export_to_html(cls, master_data: FormulaCollection, path: str) -> None:
         with open(path, "w", encoding="utf-8") as f:
             f.write(cls._build_html_content(master_data))
 
     @classmethod
-    def _export_to_pdf(cls, master_data: Dict, path: str) -> None:
+    def _export_to_pdf(cls, master_data: FormulaCollection, path: str) -> None:
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
         printer.setOutputFileName(path)
@@ -231,77 +206,73 @@ class ExportManager:
         doc.print(printer)
 
     @staticmethod
-    def _export_to_txt(master_data: Dict, path: str) -> None:
+    def _export_to_txt(master_data: FormulaCollection, path: str) -> None:
         total = len(master_data)
         lines = [f"Formulas #{total}\n", "=" * 50 + "\n\n"]
-        for fid, data in sorted(master_data.items(), key=lambda x: int(x[0])):
-            info = data["main_info"]
-            lines.append(f"#{fid}\nFormula: {info[1]}\n")
-            notes = info[5] if len(info) > 5 else ""
-            if notes and notes.strip():
-                lines.append(f"Notes: {notes}\n")
-            lines.append(f"Subject: {info[2]} | Topic: {info[3]} | Sub-Topic: {info[4]}\n")
-            if data.get("variables"):
+        for entry in sorted(master_data.values(), key=lambda e: e.display_id):
+            lines.append(f"#{entry.display_id}\nFormula: {entry.formula_text}\n")
+            if entry.has_notes:
+                lines.append(f"Notes: {entry.notes}\n")
+            lines.append(f"Subject: {entry.subject} | Topic: {entry.topic} | Sub-Topic: {entry.display_sub_topic}\n")
+            if entry.variables:
                 lines.append("Variables:\n")
-                for var in data["variables"]:
-                    unit = var["unit"]
-                    text = f"{var['symbol']} means {var['name']}" if unit.lower() in NO_DIMENSION_UNITS else f"{var['symbol']} means {var['name']} with unit {unit}"
+                for var in entry.variables:
+                    unit = var.unit
+                    text = f"{var.symbol} means {var.name}" if unit.lower() in NO_DIMENSION_UNITS else f"{var.symbol} means {var.name} with unit {unit}"
                     lines.append(f"  • {text}\n")
                 lines.append("\n" + "-" * 30 + "\n\n")
         with open(path, "w", encoding="utf-8-sig") as f:
             f.write("".join(lines))
 
     @staticmethod
-    def _export_to_csv(master_data: Dict, path: str) -> None:
+    def _export_to_csv(master_data: FormulaCollection, path: str) -> None:
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.DictWriter(f,
                                     fieldnames=["ID", "Formula", "Field", "Topic", "Sub-Topic", "Notes", "Variables"])
             writer.writeheader()
-            for fid, data in sorted(master_data.items(), key=lambda x: int(x[0])):
-                info = data["main_info"]
-                vars_str = "; ".join(f"{v['symbol']}: {v['name']} ({v['unit']})" for v in data.get("variables", []))
+            for entry in sorted(master_data.values(), key=lambda e: e.display_id):
+                vars_str = "; ".join(f"{v.symbol}: {v.name} ({v.unit})" for v in entry.variables)
                 writer.writerow({
-                    "ID": fid, "Formula": info[1], "Field": info[2],
-                    "Topic": info[3], "Sub-Topic": info[4], "Variables": vars_str,
-                    "Notes": info[5] if len(info) > 5 else "",
+                    "ID": entry.display_id, "Formula": entry.formula_text, "Field": entry.subject,
+                    "Topic": entry.topic, "Sub-Topic": entry.display_sub_topic, "Variables": vars_str,
+                    "Notes": entry.notes,
                 })
 
     @staticmethod
-    def _export_to_json(master_data: Dict, path: str) -> None:
+    def _export_to_json(master_data: FormulaCollection, path: str) -> None:
         export_data = {
             "total_formulas": len(master_data),
             "export_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "formulas": {
-                str(fid): {
-                    "formula": d["main_info"][1], "field": d["main_info"][2],
-                    "topic": d["main_info"][3], "sub_topic": d["main_info"][4],
-                    "notes": d["main_info"][5] if len(d["main_info"]) > 5 else "",
-                    "variables": d.get("variables", []),
+                str(entry.display_id): {
+                    "formula": entry.formula_text, "field": entry.subject,
+                    "topic": entry.topic, "sub_topic": entry.sub_topic,
+                    "notes": entry.notes,
+                    "variables": [v.to_dict() for v in entry.variables],
                 }
-                for fid, d in sorted(master_data.items(), key=lambda x: int(x[0]))
+                for entry in sorted(master_data.values(), key=lambda e: e.display_id)
             },
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(export_data, f, indent=2, ensure_ascii=False)
 
     @staticmethod
-    def _export_to_markdown(master_data: Dict, path: str) -> None:
+    def _export_to_markdown(master_data: FormulaCollection, path: str) -> None:
         total = len(master_data)
         lines = [
             f"# Formulas Collection ({total} formulas)\n\n",
             f"*Exported on {time.strftime('%Y-%m-%d %H:%M:%S')}*\n\n---\n\n",
         ]
-        for fid, data in sorted(master_data.items(), key=lambda x: int(x[0])):
-            info = data["main_info"]
-            lines.append(f"## #{fid}\n\n**Formula:** `{info[1]}`\n\n")
-            notes = info[5] if len(info) > 5 else ""
-            if notes and notes.strip():
-                lines.append(f"**Notes:** {notes}\n\n")
-            lines.append(f"**Field:** {info[2]} | **Topic:** {info[3]} | **Sub-Topic:** {info[4]}\n\n")
-            if data.get("variables"):
+        for entry in sorted(master_data.values(), key=lambda e: e.display_id):
+            lines.append(f"## #{entry.display_id}\n\n**Formula:** `{entry.formula_text}`\n\n")
+            if entry.has_notes:
+                lines.append(f"**Notes:** {entry.notes}\n\n")
+            lines.append(
+                f"**Field:** {entry.subject} | **Topic:** {entry.topic} | **Sub-Topic:** {entry.display_sub_topic}\n\n")
+            if entry.variables:
                 lines.append("**Variables:**\n")
-                for var in data["variables"]:
-                    sym, name, unit = var["symbol"], var["name"], var["unit"]
+                for var in entry.variables:
+                    sym, name, unit = var.symbol, var.name, var.unit
                     text = f"- **{sym}** means {name}" if unit.lower() in NO_DIMENSION_UNITS else f"- **{sym}** means {name} with unit {unit}"
                     lines.append(f"{text}\n")
                 lines.append("\n")
@@ -314,27 +285,21 @@ class ExportManager:
 
 class ExportDialog(QDialog):
     """
-    Export dialog with a hierarchical filter tree:
-    All → Subject → Topic → Sub-Topic
-
-    Each parent checkbox controls its children. Children can be partially
-    selected, showing the parent in a tristate/indeterminate state.
+    Export dialog with a hierarchical filter tree.
     """
 
-    def __init__(self, parent=None, master_data: Dict | None = None):
+    def __init__(self, parent=None, master_data: FormulaCollection | None = None):
         super().__init__(parent)
-        self.master_data = master_data or {}
+        self.master_data = master_data or FormulaCollection()
         self.selected_format = "html"
 
         self.setWindowTitle("Export Formulas")
         self.setMinimumSize(520, 600)
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
 
-        # Build hierarchy from master_data
         self.root_node = HierarchyNode("All", "all")
         self._build_hierarchy()
 
-        # Track all checkboxes for state management
         self._all_checkboxes: List[QCheckBox] = []
         self._subject_nodes: List[Tuple[HierarchyNode, QCheckBox]] = []
         self._topic_nodes: List[Tuple[HierarchyNode, QCheckBox]] = []
@@ -345,20 +310,19 @@ class ExportDialog(QDialog):
 
     def _build_hierarchy(self):
         """Build subject/topic/sub-topic tree from master_data."""
-        for fid, data in self.master_data.items():
-            info = data.get("main_info", [])
-            if len(info) < 5:
-                continue
-            self.root_node.add_formula(int(fid), info[2], info[3], info[4])
-
-    # ── UI Construction ──
+        for entry in self.master_data.values():
+            self.root_node.add_formula(
+                entry.display_id,
+                entry.subject,
+                entry.topic,
+                entry.sub_topic
+            )
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(16)
 
-        # Header
         header = QLabel("📄 Export Formulas")
         header.setStyleSheet("font-size: 20px; font-weight: bold; color: #e0e0e0;")
         layout.addWidget(header)
@@ -367,22 +331,18 @@ class ExportDialog(QDialog):
         info.setStyleSheet("color: #888; font-size: 12px;")
         layout.addWidget(info)
 
-        # Format selection
         self._build_format_section(layout)
 
-        # Separator
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("background-color: #333;")
         line.setFixedHeight(1)
         layout.addWidget(line)
 
-        # Hierarchy filter tree
         filter_label = QLabel("Filter by Hierarchy")
         filter_label.setStyleSheet("font-weight: bold; color: #aaa; font-size: 13px;")
         layout.addWidget(filter_label)
 
-        # Scroll area for tree
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -395,19 +355,16 @@ class ExportDialog(QDialog):
         self.tree_layout.setSpacing(4)
         self.tree_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # Build the tree
         self._build_tree()
 
         self.tree_layout.addStretch()
         scroll.setWidget(self.tree_container)
         layout.addWidget(scroll, stretch=1)
 
-        # Selection summary
         self.summary_label = QLabel("Selected: 0 formulas")
         self.summary_label.setStyleSheet("color: #666; font-size: 11px;")
         layout.addWidget(self.summary_label)
 
-        # Buttons
         btn_row = QHBoxLayout()
         btn_row.addStretch()
 
@@ -423,11 +380,9 @@ class ExportDialog(QDialog):
 
         layout.addLayout(btn_row)
 
-        # Initial state sync
         self._update_summary()
 
     def _build_format_section(self, parent_layout: QVBoxLayout):
-        """Build format selection combobox."""
         fmt_frame = QFrame()
         fmt_frame.setObjectName("formArea")
         fmt_layout = QVBoxLayout(fmt_frame)
@@ -466,12 +421,6 @@ class ExportDialog(QDialog):
         parent_layout.addWidget(fmt_frame)
 
     def _build_tree(self):
-        """Build the hierarchical checkbox tree with collapsible sections.
-        All sections start collapsed by default.
-        NO stylesheet is applied to QCheckBox widgets.
-        """
-
-        # ── "All" checkbox ──
         all_cb = QCheckBox(f"All  ({len(self.master_data)} formulas)")
         all_cb.setTristate(True)
         all_cb.setChecked(True)
@@ -480,14 +429,12 @@ class ExportDialog(QDialog):
         self.tree_layout.addWidget(all_cb)
         self._all_checkboxes.append(all_cb)
 
-        # Separator under All
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("background-color: #444;")
         sep.setFixedHeight(1)
         self.tree_layout.addWidget(sep)
 
-        # ── Subjects ──
         for subject_name in sorted(self.root_node.children.keys()):
             subj_node = self.root_node.children[subject_name]
             count = len(subj_node.formula_ids)
@@ -498,11 +445,10 @@ class ExportDialog(QDialog):
             subj_layout.setContentsMargins(12, 8, 8, 8)
             subj_layout.setSpacing(4)
 
-            # Header row: toggle + checkbox
             header_layout = QHBoxLayout()
             header_layout.setSpacing(6)
 
-            toggle_btn = QPushButton("▶")  # <-- starts collapsed
+            toggle_btn = QPushButton("▶")
             toggle_btn.setFixedSize(22, 22)
             toggle_btn.setStyleSheet("""
                 QPushButton {
@@ -521,18 +467,16 @@ class ExportDialog(QDialog):
             subj_cb.setTristate(True)
             subj_cb.setChecked(True)
             subj_cb.stateChanged.connect(
-                lambda state, node=subj_node: self._on_subject_changed(node, state)
+                lambda state,
+                       node=subj_node: self._on_subject_changed(node, state)
             )
             subj_node.checkbox = subj_cb
             header_layout.addWidget(subj_cb, stretch=1)
             subj_layout.addLayout(header_layout)
             self._subject_nodes.append((subj_node, subj_cb))
 
-            # ── Topics container (indented, starts HIDDEN) ──
             topics_container = QFrame()
-            topics_container.setStyleSheet(
-                "border-left: 2px solid #333;"
-            )
+            topics_container.setStyleSheet("border-left: 2px solid #333;")
 
             topics_layout = QVBoxLayout(topics_container)
             topics_layout.setContentsMargins(24, 4, 0, 4)
@@ -542,17 +486,15 @@ class ExportDialog(QDialog):
                 topic_node = subj_node.children[topic_name]
                 tcount = len(topic_node.formula_ids)
 
-                # ── Topic wrapper ──
                 topic_wrapper = QFrame()
                 topic_wrapper_layout = QVBoxLayout(topic_wrapper)
                 topic_wrapper_layout.setContentsMargins(0, 0, 0, 0)
                 topic_wrapper_layout.setSpacing(2)
 
-                # Topic header: toggle + checkbox
                 topic_header = QHBoxLayout()
                 topic_header.setSpacing(6)
 
-                topic_toggle = QPushButton("▶")  # <-- starts collapsed
+                topic_toggle = QPushButton("▶")
                 topic_toggle.setFixedSize(24, 24)
                 topic_toggle.setStyleSheet("""
                     QPushButton {
@@ -571,18 +513,17 @@ class ExportDialog(QDialog):
                 topic_cb.setTristate(True)
                 topic_cb.setChecked(True)
                 topic_cb.stateChanged.connect(
-                    lambda state, node=topic_node, parent_node=subj_node: self._on_topic_changed(node, state)
+                    lambda state,
+                           node=topic_node,
+                           parent_node=subj_node: self._on_topic_changed(node, state)
                 )
                 topic_node.checkbox = topic_cb
                 topic_header.addWidget(topic_cb, stretch=1)
                 topic_wrapper_layout.addLayout(topic_header)
                 self._topic_nodes.append((topic_node, topic_cb))
 
-                # ── Sub-topics container (deeply indented, starts HIDDEN) ──
                 sub_container = QFrame()
-                sub_container.setStyleSheet(
-                    "border-left: 2px solid #2a2a2a;"
-                )
+                sub_container.setStyleSheet("border-left: 2px solid #2a2a2a;")
 
                 sub_layout = QVBoxLayout(sub_container)
                 sub_layout.setContentsMargins(48, 2, 0, 2)
@@ -596,29 +537,33 @@ class ExportDialog(QDialog):
                     sub_cb = QCheckBox(f"{display_name}  ({scount})")
                     sub_cb.setChecked(True)
                     sub_cb.stateChanged.connect(
-                        lambda state, node=sub_node, parent_node=topic_node: self._on_subtopic_changed()
+                        lambda state,
+                               node=sub_node,
+                               parent_node=topic_node: self._on_subtopic_changed()
                     )
                     sub_node.checkbox = sub_cb
                     sub_layout.addWidget(sub_cb)
                     self._subtopic_nodes.append((sub_node, sub_cb))
 
                 topic_wrapper_layout.addWidget(sub_container)
-                sub_container.hide()  # <-- COLLAPSED BY DEFAULT
+                sub_container.hide()
 
-                # Topic toggle logic
                 topic_toggle.clicked.connect(
-                    lambda checked, btn=topic_toggle, container=sub_container: self._toggle_section(btn, container)
+                    lambda checked,
+                           btn=topic_toggle,
+                           container=sub_container: self._toggle_section(btn, container)
                 )
 
                 topics_layout.addWidget(topic_wrapper)
 
             subj_layout.addWidget(topics_container)
-            topics_container.hide()  # <-- COLLAPSED BY DEFAULT
+            topics_container.hide()
             self.tree_layout.addWidget(subj_frame)
 
-            # Subject toggle logic
             toggle_btn.clicked.connect(
-                lambda checked, btn=toggle_btn, container=topics_container: self._toggle_section(btn, container)
+                lambda checked,
+                       btn=toggle_btn,
+                       container=topics_container: self._toggle_section(btn, container)
             )
 
     @staticmethod
@@ -634,7 +579,7 @@ class ExportDialog(QDialog):
     def _on_all_changed(self, state: int):
         """When 'All' is toggled, propagate to all subjects."""
         if state == Qt.CheckState.PartiallyChecked.value:
-            return  # Ignore indeterminate from user click
+            return
 
         checked = state == Qt.CheckState.Checked.value
         for subj_node, _ in self._subject_nodes:
@@ -664,7 +609,6 @@ class ExportDialog(QDialog):
         self._update_summary()
 
     def _on_subtopic_changed(self):
-        """When a sub-topic is toggled, sync upwards."""
         self._sync_parent_states()
         self._update_summary()
 
@@ -681,9 +625,10 @@ class ExportDialog(QDialog):
 
     @staticmethod
     def _set_checkbox_state(checkbox: QCheckBox | None, state):
-        """Set checkbox state without emitting signals."""
         if checkbox:
             checkbox.blockSignals(True)
+            if isinstance(state, bool):
+                state = Qt.CheckState.Checked if state else Qt.CheckState.Unchecked
             checkbox.setCheckState(state)
             checkbox.blockSignals(False)
 
@@ -701,24 +646,23 @@ class ExportDialog(QDialog):
 
     def _sync_parent_states(self):
         """Recalculate all parent checkbox states from leaf nodes up."""
-        # Sync topics → subjects
         for subj_node, subj_cb in self._subject_nodes:
             topic_states = []
             for topic_node in subj_node.children.values():
-                sub_states = [2 if sub_node.checkbox.isChecked() else 0
-                              for sub_node in topic_node.children.values()]
+                sub_states = [
+                    self._qt_state_to_numeric(sub_node.checkbox.checkState())
+                    if sub_node.checkbox else 0
+                    for sub_node in topic_node.children.values()
+                ]
                 state = self._calculate_state_from_children(sub_states)
                 self._set_checkbox_state(topic_node.checkbox, state)
                 topic_states.append(self._qt_state_to_numeric(state))
 
-            # Sync subject
             subj_state = self._calculate_state_from_children(topic_states)
             self._set_checkbox_state(subj_cb, subj_state)
 
-        # Sync root "All"
         subj_states = [self._qt_state_to_numeric(cb.checkState())
                        for _, cb in self._subject_nodes]
-
         all_state = self._calculate_state_from_children(subj_states)
         self._set_checkbox_state(self.root_node.checkbox, all_state)
 
@@ -748,8 +692,11 @@ class ExportDialog(QDialog):
             QMessageBox.warning(self, "No Selection", "No formulas selected for export.")
             return
 
-        # Filter master_data to only selected
-        filtered_data = {fid: self.master_data[fid] for fid in selected_ids if fid in self.master_data}
+        filtered_data = FormulaCollection()
+        for display_id in selected_ids:
+            entry = self.master_data.get(display_id)
+            if entry:
+                filtered_data.add(entry)
 
         ext = ExportManager.get_file_extension(self.selected_format)
         file_filter = ExportManager.get_file_filter(self.selected_format)
