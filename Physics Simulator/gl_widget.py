@@ -1,0 +1,271 @@
+"""
+ui/gl_widget.py – with free camera, transform gizmo, and placement mode.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+from PyQt6.QtCore import QElapsedTimer, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QMouseEvent, QSurfaceFormat, QWheelEvent
+from PyQt6.QtOpenGLWidgets import QOpenGLWidget
+
+from body import RigidBody
+from camera import OrbitCamera
+from config import SimulationConfig
+from event_bus import bus
+from force_object import ForceObject
+from math_utils import ray_plane_intersect, vec3
+from renderer import Renderer
+from scene import Scene
+from gizmo import TransformGizmo
+
+logger = logging.getLogger(__name__)
+
+
+def make_default_surface_format() -> QSurfaceFormat:
+    fmt = QSurfaceFormat()
+    fmt.setDepthBufferSize(24)
+    fmt.setStencilBufferSize(8)
+    fmt.setSamples(4)
+    fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CompatibilityProfile)
+    fmt.setVersion(2, 1)
+    return fmt
+
+
+class SandboxGLWidget(QOpenGLWidget):
+    fps_updated = pyqtSignal(float)
+    selection_changed = pyqtSignal(object)
+    object_count_changed = pyqtSignal(int)
+
+    def __init__(self, scene: Scene, config: SimulationConfig, parent=None) -> None:
+        super().__init__(parent)
+        self.setFormat(make_default_surface_format())
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
+
+        self.scene = scene
+        self.config = config
+        self.camera = OrbitCamera()
+        self.renderer = Renderer(config)
+        self.gizmo = TransformGizmo()
+        self.show_gizmo = True
+
+        self._last_mouse_pos = None
+        self._orbiting = False
+        self._panning = False
+        self._dragging_body: Optional[RigidBody] = None
+        self._dragging_force: Optional[ForceObject] = None
+        self._drag_plane_y = 0.0
+
+        self._placement_mode = False
+        self._placement_kind = "sphere"
+        self._free_camera = False
+
+        # Gizmo drag state
+        self._gizmo_dragging = False
+        self._gizmo_axis = None
+
+        self._clock = QElapsedTimer()
+        self._clock.start()
+        self._last_frame_ns = self._clock.nsecsElapsed()
+        self._fps_smoother = 60.0
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._on_tick)
+        self._timer.start(int(1000 / config.target_fps))
+
+        bus.subscribe("scene.selection_changed", lambda body: self.selection_changed.emit(body))
+        bus.subscribe("input.set_place_mode", self._set_place_mode)
+        for evt in ("scene.object_spawned", "scene.object_removed", "physics.body_added",
+                    "physics.body_removed", "scene.cleared", "scene.reset"):
+            bus.subscribe(evt, lambda *_: self.object_count_changed.emit(len(self.scene.world.bodies)))
+
+        self.setMouseTracking(True)
+
+    # ------------------------------------------------------------------
+    # QOpenGLWidget overrides
+    # ------------------------------------------------------------------
+
+    def initializeGL(self) -> None:
+        self.renderer.init_gl()
+
+    def resizeGL(self, w: int, h: int) -> None:
+        self.renderer.resize(w, h)
+        self.camera.viewport = (w, h)
+        self.camera.fov_deg = self.config.camera_fov_deg
+
+    def paintGL(self) -> None:
+        # Pass gizmo to renderer
+        self.renderer.gizmo = self.gizmo if self.show_gizmo and self.scene.selected_body else None
+        self.renderer.render(self.scene, self.camera)
+
+    # ------------------------------------------------------------------
+    # Simulation tick
+    # ------------------------------------------------------------------
+
+    def _on_tick(self) -> None:
+        now_ns = self._clock.nsecsElapsed()
+        dt = max(0.0, (now_ns - self._last_frame_ns) / 1e9)
+        self._last_frame_ns = now_ns
+        dt = min(dt, 0.1)
+
+        self.scene.update(dt)
+        self.renderer.update(dt)
+
+        if dt > 1e-6:
+            instant_fps = 1.0 / dt
+            self._fps_smoother = self._fps_smoother * 0.9 + instant_fps * 0.1
+            self.fps_updated.emit(self._fps_smoother)
+
+        self.update()
+
+    # ------------------------------------------------------------------
+    # Mouse interaction
+    # ------------------------------------------------------------------
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        self._last_mouse_pos = event.position()
+        pos = event.position()
+
+        if self._placement_mode and event.button() == Qt.MouseButton.LeftButton:
+            ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
+            t = ray_plane_intersect(ray_o, ray_d, vec3(0, 0, 0), vec3(0, 1, 0))
+            if t is not None:
+                world_pos = ray_o + ray_d * t
+                self.scene.spawn(self._placement_kind, position=world_pos)
+            return
+
+        # Check gizmo pick first
+        if self.show_gizmo and self.scene.selected_body:
+            ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
+            body = self.scene.selected_body
+            axis, hit = self.gizmo.pick(ray_o, ray_d, body.position, body.orientation, scale=body.scale)
+            if axis is not None and event.button() == Qt.MouseButton.LeftButton:
+                self._gizmo_dragging = True
+                self._gizmo_axis = axis
+                self.gizmo.start_drag(axis, hit, body.position)
+                return
+
+        if event.button() == Qt.MouseButton.LeftButton:
+            ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
+            hit = self.scene.pick(ray_o, ray_d)
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                if isinstance(hit, RigidBody):
+                    self.scene.set_secondary_selection(hit)
+                    return
+            self.scene.select(hit)
+            if hit is not None and isinstance(hit, RigidBody) and not hit.is_static:
+                self._dragging_body = hit
+                self._drag_plane_y = hit.position[1]
+            elif hit is not None and isinstance(hit, ForceObject):
+                self._dragging_force = hit
+                self._drag_plane_y = hit.get_world_position()[1]
+            else:
+                if not self._free_camera:
+                    self._orbiting = True
+        elif event.button() == Qt.MouseButton.MiddleButton:
+            self._panning = True
+        elif event.button() == Qt.MouseButton.RightButton:
+            if self._free_camera:
+                # In free mode, right click does nothing special
+                pass
+            else:
+                self._orbiting = True
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        pos = event.position()
+        if self._last_mouse_pos is None:
+            self._last_mouse_pos = pos
+            return
+        dx = pos.x() - self._last_mouse_pos.x()
+        dy = pos.y() - self._last_mouse_pos.y()
+        self._last_mouse_pos = pos
+
+        # Gizmo drag
+        if self._gizmo_dragging and self.scene.selected_body:
+            ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
+            new_pos = self.gizmo.update_drag(ray_o, ray_d, self.scene.selected_body.position)
+            if new_pos is not None:
+                self.scene.selected_body.position = new_pos
+                self.scene.selected_body.wake()
+            return
+
+        if self._dragging_body is not None:
+            ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
+            t = ray_plane_intersect(ray_o, ray_d, vec3(0, self._drag_plane_y, 0), vec3(0, 1, 0))
+            if t is not None:
+                world_pos = ray_o + ray_d * t
+                self.scene.move_selected_to(world_pos)
+        elif self._dragging_force is not None:
+            ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
+            t = ray_plane_intersect(ray_o, ray_d, vec3(0, self._drag_plane_y, 0), vec3(0, 1, 0))
+            if t is not None:
+                world_pos = ray_o + ray_d * t
+                self.scene.move_selected_force_to(world_pos)
+        elif self._orbiting:
+            self.camera.orbit(dx, dy, self.config.orbit_sensitivity)
+        elif self._panning:
+            self.camera.pan(dx, dy, self.config.pan_sensitivity)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._gizmo_dragging:
+            self._gizmo_dragging = False
+            self._gizmo_axis = None
+            return
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._orbiting = False
+            if self._dragging_body is not None:
+                self._dragging_body.wake()
+            self._dragging_body = None
+            self._dragging_force = None
+        elif event.button() == Qt.MouseButton.MiddleButton:
+            self._panning = False
+        elif event.button() == Qt.MouseButton.RightButton:
+            self._orbiting = False
+        self._last_mouse_pos = None
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        steps = event.angleDelta().y() / 120.0
+        self.camera.zoom(steps, self.config.zoom_sensitivity)
+
+    # ------------------------------------------------------------------
+    # Keyboard shortcuts
+    # ------------------------------------------------------------------
+
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.scene.delete_selected()
+        elif key == Qt.Key.Key_Space:
+            self.scene.apply_random_impulse()
+        elif key == Qt.Key.Key_P:
+            self._placement_mode = not self._placement_mode
+        elif key == Qt.Key.Key_F:
+            self._free_camera = not self._free_camera
+            self.camera.set_free_mode(self._free_camera)
+            self.setWindowTitle(f"3D Physics Sandbox {'[Free Camera]' if self._free_camera else ''}")
+        elif key == Qt.Key.Key_G:
+            self.show_gizmo = not self.show_gizmo
+        elif key == Qt.Key.Key_W:
+            self.camera.move_forward(0.3)
+        elif key == Qt.Key.Key_S:
+            self.camera.move_forward(-0.3)
+        elif key == Qt.Key.Key_A:
+            self.camera.move_right(-0.3)
+        elif key == Qt.Key.Key_D:
+            self.camera.move_right(0.3)
+        elif key == Qt.Key.Key_Q:
+            self.camera.move_up(-0.3)
+        elif key == Qt.Key.Key_E:
+            self.camera.move_up(0.3)
+        else:
+            super().keyPressEvent(event)
+
+    # ------------------------------------------------------------------
+    # Placement mode
+    # ------------------------------------------------------------------
+
+    def _set_place_mode(self, enabled: bool) -> None:
+        self._placement_mode = enabled
