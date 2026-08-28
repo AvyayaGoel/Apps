@@ -4,6 +4,8 @@ ui/toolbar.py – now includes density, scale, and constraint creation.
 
 from __future__ import annotations
 
+import numpy as np
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QGroupBox, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget, QDoubleSpinBox, QCheckBox
