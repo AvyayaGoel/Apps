@@ -50,7 +50,7 @@ def broad_phase_pairs(bodies: List[RigidBody]) -> List[Tuple[RigidBody, RigidBod
 def resolve_ground_contact(body: RigidBody, ground_y: float, friction: float, restitution: float) -> None:
     if body.is_static:
         return
-    bottom = body.position[1] - body.half_height()
+    bottom = body.bottom_y()
     penetration = ground_y - bottom
     if penetration <= 0.0:
         return
@@ -201,15 +201,15 @@ def _sphere_box_contact(sphere: RigidBody, box: RigidBody) -> Optional[Tuple[np.
 def _resolve_contact(a: RigidBody, b: RigidBody, normal: np.ndarray, penetration: float,
                      contact_point: np.ndarray) -> None:
     """Apply impulse-based resolution to separate two bodies and correct velocities."""
-    a.wake()
-    b.wake()
-
     total_inv_mass = a.inv_mass + b.inv_mass
     if total_inv_mass <= 1e-9:
         return
 
-    # Position correction
-    correction = normal * (penetration / total_inv_mass)
+    # Position correction with a small slop prevents jitter in resting stacks.
+    slop = 0.001
+    percent = 0.8
+    correction_mag = max(penetration - slop, 0.0) / total_inv_mass * percent
+    correction = normal * correction_mag
     a.position -= correction * a.inv_mass
     b.position += correction * b.inv_mass
 
@@ -220,6 +220,8 @@ def _resolve_contact(a: RigidBody, b: RigidBody, normal: np.ndarray, penetration
         return  # separating
 
     restitution = min(a.restitution, b.restitution)
+    if abs(vel_along_normal) < 0.5:
+        restitution = 0.0
     j = -(1.0 + restitution) * vel_along_normal / total_inv_mass
     impulse = normal * j
     a.velocity -= impulse * a.inv_mass
@@ -287,6 +289,9 @@ def resolve_pair(a: RigidBody, b: RigidBody) -> None:
     if contact:
         normal, penetration, contact_point = contact
         _resolve_contact(a, b, normal, penetration, contact_point)
+        if penetration > 0.001:
+            a.wake()
+            b.wake()
 
 
 def _sphere_sphere_contact(a: RigidBody, b: RigidBody):

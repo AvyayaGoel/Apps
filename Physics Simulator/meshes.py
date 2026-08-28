@@ -247,10 +247,12 @@ def _build_pyramid():
         glVertex3f(*p1)
         glVertex3f(*p2)
         glVertex3f(*apex)
+    glEnd()
+
     # bottom face
-    glNormal3f(0, -1, 0)
     glBegin(GL_QUADS)
-    for v in base:
+    glNormal3f(0, -1, 0)
+    for v in reversed(base):
         glVertex3f(*v)
     glEnd()
 
@@ -275,7 +277,9 @@ def _build_shape_geometry(shape: str, shape_params: dict, object_kind: str, scal
         builder()
         glPopMatrix()
         return
-    if shape == "sphere":
+    if object_kind == "torus":
+        draw_torus(shape_params.get("radius", 0.5), shape_params.get("tube_radius", 0.18))
+    elif shape == "sphere":
         draw_sphere(shape_params.get("radius", 0.5))
     elif shape == "box":
         draw_box(shape_params.get("half_extents", (0.4, 0.4, 0.4)))
@@ -285,8 +289,6 @@ def _build_shape_geometry(shape: str, shape_params: dict, object_kind: str, scal
         draw_cone(shape_params.get("radius", 0.5), shape_params.get("height", 1.0))
     else:
         draw_sphere(shape_params.get("radius", 0.5))
-    if object_kind == "torus":
-        draw_torus(shape_params.get("radius", 0.5), shape_params.get("tube_radius", 0.18))
     glPopMatrix()
 
 
