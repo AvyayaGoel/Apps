@@ -12,6 +12,7 @@ class SimulationConfig:
     gravity: float = 9.8
     fixed_timestep: float = 1.0 / 120.0
     max_substeps: int = 8
+    collision_solver_iterations: int = 6
     ground_friction: float = 0.6
     ground_restitution: float = 0.4
     air_damping: float = 0.999

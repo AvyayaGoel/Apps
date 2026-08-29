@@ -7,7 +7,7 @@ Constraint classes: Spring, Rope (distance), Hinge (revolute).
 from __future__ import annotations
 
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from body import RigidBody
@@ -29,6 +29,7 @@ class Constraint:
         pass
 
 
+@dataclass
 class SpringConstraint(Constraint):
     """Linear spring connecting two anchor points."""
     rest_length: float = 1.0
@@ -63,6 +64,7 @@ class SpringConstraint(Constraint):
             self.body_b.apply_impulse(-impulse, pos_b)
 
 
+@dataclass
 class RopeConstraint(Constraint):
     """Inextensible rope: only pulls, does not push."""
     max_length: float = 1.0
@@ -105,9 +107,10 @@ class RopeConstraint(Constraint):
             self.body_b.apply_impulse(-impulse, pos_b)
 
 
+@dataclass
 class HingeConstraint(Constraint):
     """Revolute joint: restricts relative translation along a fixed axis."""
-    axis: np.ndarray = vec3(0, 1, 0)  # world-space axis of rotation
+    axis: np.ndarray = field(default_factory=lambda: vec3(0, 1, 0))  # world-space axis of rotation
     angle: float = 0.0  # current angle (for limits)
     min_angle: float = -np.inf
     max_angle: float = np.inf

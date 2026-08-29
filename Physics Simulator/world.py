@@ -94,9 +94,11 @@ class PhysicsWorld:
         for body in self.bodies:
             resolve_ground_contact(body, self.ground_y, cfg.ground_friction, cfg.ground_restitution)
 
-        # 4. Body-body collisions
-        for a, b in broad_phase_pairs(self.bodies):
-            resolve_pair(a, b)
+        # 4. Body-body collisions. Multiple solver passes improve resting contacts
+        # and stacking without adding fake placement rules.
+        for _ in range(cfg.collision_solver_iterations):
+            for a, b in broad_phase_pairs(self.bodies):
+                resolve_pair(a, b)
 
         # 5. Constraints (position-based)
         for constraint in self.constraints:

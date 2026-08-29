@@ -14,7 +14,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from math_utils import IDENTITY_QUAT, quat_integrate, vec3
+from math_utils import IDENTITY_QUAT, quat_integrate, quat_rotate_vector, vec3
 
 SHAPE_SPHERE = "sphere"
 SHAPE_BOX = "box"
@@ -123,18 +123,29 @@ class RigidBody:
 
     def aabb(self) -> Tuple[np.ndarray, np.ndarray]:
         if self.shape == SHAPE_BOX:
-            hx, hy, hz = self.shape_params.get("half_extents", (0.4, 0.4, 0.4))
-            he = np.array([hx, hy, hz], dtype=np.float64) * self.scale
-        else:
-            r = self.bounding_radius()
-            he = vec3(r, r, r)
+            he = self.get_scaled_half_extents()
+            corners = np.array([
+                [-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1],
+                [-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1],
+            ], dtype=np.float64) * he
+            vertices = np.array([quat_rotate_vector(self.orientation, c) + self.position for c in corners])
+            return vertices.min(axis=0), vertices.max(axis=0)
+        r = self.bounding_radius()
+        he = vec3(r, r, r)
         return self.position - he, self.position + he
+
+    def bottom_y(self) -> float:
+        if self.shape == SHAPE_BOX:
+            return self.aabb()[0][1]
+        return self.position[1] - self.half_height()
 
     def half_height(self) -> float:
         if self.shape == SHAPE_SPHERE:
             return self.shape_params.get("radius", 0.5) * self.scale
         if self.shape == SHAPE_BOX:
-            return self.shape_params.get("half_extents", (0.4, 0.4, 0.4))[1] * self.scale
+            he = self.get_scaled_half_extents()
+            axes = [quat_rotate_vector(self.orientation, axis) for axis in np.eye(3)]
+            return float(sum(abs(axis[1]) * he[i] for i, axis in enumerate(axes)))
         if self.shape in (SHAPE_CYLINDER, SHAPE_CONE):
             return self.shape_params.get("height", 1.0) * 0.5 * self.scale
         return self.bounding_radius()
