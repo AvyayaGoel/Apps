@@ -19,6 +19,22 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("3D Physics Sandbox")
         self.resize(1400, 900)
+        self.setStyleSheet("""
+            QToolButton {
+                background: #30343b;
+                color: #eef2f6;
+                border: 1px solid #4a505a;
+                border-radius: 4px;
+                padding: 6px;
+                font-weight: 600;
+                text-align: left;
+            }
+            QFrame#collapsibleContent {
+                background: #f3f4f6;
+                border: 1px solid #c7ccd4;
+                border-top: 0;
+            }
+        """)
 
         self.scene = scene
         self.config = config
@@ -38,7 +54,8 @@ class MainWindow(QMainWindow):
         left_scroll = QScrollArea()
         left_scroll.setWidget(left_widget)
         left_scroll.setWidgetResizable(True)
-        left_scroll.setMaximumWidth(320)
+        left_scroll.setMinimumWidth(230)
+        left_scroll.setMaximumWidth(360)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         central.addWidget(left_scroll)
 
@@ -57,12 +74,16 @@ class MainWindow(QMainWindow):
         right_scroll = QScrollArea()
         right_scroll.setWidget(right_widget)
         right_scroll.setWidgetResizable(True)
-        right_scroll.setMaximumWidth(340)
+        right_scroll.setMinimumWidth(250)
+        right_scroll.setMaximumWidth(380)
         right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         central.addWidget(right_scroll)
 
         # Set initial sizes
-        central.setSizes([280, 800, 300])
+        central.setSizes([300, 820, 320])
+        central.setStretchFactor(0, 0)
+        central.setStretchFactor(1, 1)
+        central.setStretchFactor(2, 0)
 
         self._build_status_bar()
 

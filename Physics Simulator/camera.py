@@ -37,17 +37,20 @@ class OrbitCamera:
 
     def set_free_mode(self, enabled: bool) -> None:
         if enabled and not self.free_mode:
-            # Switch to free: store current orbit parameters as free ones
             self.free_position = self.position()
-            self.free_yaw = self.yaw
-            self.free_pitch = self.pitch
+            self.free_yaw = self.yaw + math.pi
+            self.free_pitch = -self.pitch
         elif not enabled and self.free_mode:
-            # Switch back to orbit: set orbit parameters from free position?
-            # We'll just set target to the free position and keep distance.
-            self.target = self.free_position
-            self.yaw = self.free_yaw
-            self.pitch = self.free_pitch
+            self.target = self.free_position + self.forward() * self.distance
+            self.yaw = self.free_yaw - math.pi
+            self.pitch = -self.free_pitch
+            self.pitch = max(self.min_pitch, min(self.max_pitch, self.pitch))
         self.free_mode = enabled
+
+    def look_at_point(self) -> np.ndarray:
+        if self.free_mode:
+            return self.free_position + self.forward()
+        return self.target.copy()
 
     # ------------------------------------------------------------------
     # Position / basis vectors (works for both modes)
@@ -111,9 +114,7 @@ class OrbitCamera:
 
     def zoom(self, wheel_steps: float, sensitivity: float) -> None:
         if self.free_mode:
-            # Move forward/backward
-            factor = sensitivity ** (-wheel_steps)
-            self.free_position += self.forward() * (wheel_steps * 0.5)  # simple zoom
+            self.free_position += self.forward() * (wheel_steps * 1.0)
         else:
             factor = sensitivity ** (-wheel_steps)
             self.distance = max(self.min_distance, min(self.max_distance, self.distance * factor))

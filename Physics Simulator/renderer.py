@@ -64,7 +64,7 @@ class Renderer:
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
         eye = camera.position()
-        center = camera.target
+        center = camera.look_at_point()
         up = camera.up()
         gluLookAt(eye[0], eye[1], eye[2], center[0], center[1], center[2], up[0], up[1], up[2])
 
@@ -80,6 +80,8 @@ class Renderer:
         glEnable(GL_LIGHTING)
         self.terrain.draw_ground()
         self.terrain.draw_mountains()
+        self.scenery.draw_rocks()
+        self.scenery.draw_grass_tufts()
         self.scenery.draw_trees()
         self.terrain.draw_playing_surface_outline()
 

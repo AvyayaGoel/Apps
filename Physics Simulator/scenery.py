@@ -21,6 +21,23 @@ class Tree:
 
 
 @dataclass
+class Rock:
+    x: float
+    z: float
+    scale: float
+    rotation_deg: float
+
+
+@dataclass
+class GrassTuft:
+    x: float
+    z: float
+    height: float
+    radius: float
+    phase: float
+
+
+@dataclass
 class Cloud:
     x: float
     y: float
@@ -34,8 +51,11 @@ class SceneryManager:
     def __init__(self, config: SimulationConfig) -> None:
         self.config = config
         self.trees: List[Tree] = []
+        self.rocks: List[Rock] = []
+        self.grass_tufts: List[GrassTuft] = []
         self.clouds: List[Cloud] = []
         self._tree_list = None
+        self._rock_list = None
         self._quadric = None
         self._generate()
 
@@ -43,13 +63,31 @@ class SceneryManager:
         rng = random.Random(42)
         cfg = self.config
         min_r = cfg.playing_surface_half_extent + 4.0
-        max_r = 70.0
+        max_r = 145.0
         for _ in range(cfg.tree_count):
             angle = rng.uniform(0, 2 * math.pi)
             dist = rng.uniform(min_r, max_r)
             self.trees.append(Tree(
                 x=math.cos(angle) * dist, z=math.sin(angle) * dist,
-                scale=rng.uniform(0.7, 1.8), rotation_deg=rng.uniform(0, 360),
+                scale=rng.uniform(0.7, 2.2), rotation_deg=rng.uniform(0, 360),
+            ))
+
+        for _ in range(70):
+            angle = rng.uniform(0, 2 * math.pi)
+            dist = rng.uniform(cfg.playing_surface_half_extent + 2.0, 130.0)
+            self.rocks.append(Rock(
+                x=math.cos(angle) * dist, z=math.sin(angle) * dist,
+                scale=rng.uniform(0.25, 1.25), rotation_deg=rng.uniform(0, 360),
+            ))
+
+        for _ in range(260):
+            angle = rng.uniform(0, 2 * math.pi)
+            dist = rng.uniform(8.0, 135.0)
+            if dist < cfg.playing_surface_half_extent + 2.0 and rng.random() < 0.75:
+                continue
+            self.grass_tufts.append(GrassTuft(
+                x=math.cos(angle) * dist, z=math.sin(angle) * dist,
+                height=rng.uniform(0.25, 0.75), radius=rng.uniform(0.08, 0.18), phase=rng.uniform(0, math.pi),
             ))
 
         for _ in range(cfg.cloud_count):
@@ -60,7 +98,7 @@ class SceneryManager:
                     rng.uniform(1.0, 2.0),
                 ))
             self.clouds.append(Cloud(
-                x=rng.uniform(-100, 100), y=rng.uniform(30, 50), z=rng.uniform(-100, 100),
+                x=rng.uniform(-140, 140), y=rng.uniform(32, 58), z=rng.uniform(-140, 140),
                 scale=rng.uniform(1.5, 3.5), speed=rng.uniform(0.4, 1.2), puffs=puffs,
             ))
 
@@ -87,23 +125,57 @@ class SceneryManager:
     def _build_single_tree(self) -> None:
         cfg = self.config
         q = self._get_quadric()
-        trunk_h = 1.6
+        trunk_h = 1.9
         glColor3f(*cfg.trunk_color)
         glPushMatrix()
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(q, 0.14, 0.10, trunk_h, 8, 1)
+        gluCylinder(q, 0.18, 0.11, trunk_h, 10, 1)
         glPopMatrix()
 
         glColor3f(*cfg.foliage_color)
-        for i, (h, r) in enumerate(((1.6, 1.0), (2.2, 0.8), (2.8, 0.55))):
+        for h, r in ((1.45, 1.05), (2.05, 0.86), (2.62, 0.64), (3.12, 0.40)):
             glPushMatrix()
             glTranslatef(0, h, 0)
             glRotatef(-90, 1, 0, 0)
-            gluCylinder(q, r, 0.0, 1.1, 10, 1)
+            gluCylinder(q, r, 0.0, 1.2, 14, 1)
             glPopMatrix()
 
+    def draw_rocks(self) -> None:
+        if self._rock_list is None:
+            self._rock_list = glGenLists(1)
+            glNewList(self._rock_list, GL_COMPILE)
+            q = self._get_quadric()
+            glColor3f(0.34, 0.33, 0.31)
+            glScalef(1.0, 0.45, 0.75)
+            gluSphere(q, 0.6, 12, 8)
+            glEndList()
+
+        for rock in self.rocks:
+            glPushMatrix()
+            glTranslatef(rock.x, 0.18 * rock.scale, rock.z)
+            glRotatef(rock.rotation_deg, 0, 1, 0)
+            glScalef(rock.scale, rock.scale, rock.scale)
+            glCallList(self._rock_list)
+            glPopMatrix()
+
+    def draw_grass_tufts(self) -> None:
+        glPushAttrib(GL_ENABLE_BIT | GL_LIGHTING_BIT | GL_LINE_BIT | GL_CURRENT_BIT)
+        glDisable(GL_LIGHTING)
+        glLineWidth(1.2)
+        glColor3f(0.19, 0.46, 0.16)
+        glBegin(GL_LINES)
+        for tuft in self.grass_tufts:
+            for i in range(5):
+                angle = tuft.phase + i * 2.0 * math.pi / 5.0
+                tip_x = tuft.x + math.cos(angle) * tuft.radius
+                tip_z = tuft.z + math.sin(angle) * tuft.radius
+                glVertex3f(tuft.x, 0.02, tuft.z)
+                glVertex3f(tip_x, tuft.height, tip_z)
+        glEnd()
+        glPopAttrib()
+
     def update(self, dt: float) -> None:
-        bound = 120.0
+        bound = 155.0
         for cloud in self.clouds:
             cloud.x += cloud.speed * dt
             if cloud.x > bound:

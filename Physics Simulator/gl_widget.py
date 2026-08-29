@@ -62,6 +62,7 @@ class SandboxGLWidget(QOpenGLWidget):
         self._placement_mode = False
         self._placement_kind = "sphere"
         self._free_camera = False
+        self._pressed_keys = set()
 
         # Gizmo drag state
         self._gizmo_dragging = False
@@ -111,6 +112,7 @@ class SandboxGLWidget(QOpenGLWidget):
         self._last_frame_ns = now_ns
         dt = min(dt, 0.1)
 
+        self._update_free_camera_motion(dt)
         self.scene.update(dt)
         self.renderer.update(dt)
 
@@ -168,11 +170,7 @@ class SandboxGLWidget(QOpenGLWidget):
         elif event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
         elif event.button() == Qt.MouseButton.RightButton:
-            if self._free_camera:
-                # In free mode, right click does nothing special
-                pass
-            else:
-                self._orbiting = True
+            self._orbiting = True
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         pos = event.position()
@@ -248,20 +246,34 @@ class SandboxGLWidget(QOpenGLWidget):
             self.setWindowTitle(f"3D Physics Sandbox {'[Free Camera]' if self._free_camera else ''}")
         elif key == Qt.Key.Key_G:
             self.show_gizmo = not self.show_gizmo
-        elif key == Qt.Key.Key_W:
-            self.camera.move_forward(0.3)
-        elif key == Qt.Key.Key_S:
-            self.camera.move_forward(-0.3)
-        elif key == Qt.Key.Key_A:
-            self.camera.move_right(-0.3)
-        elif key == Qt.Key.Key_D:
-            self.camera.move_right(0.3)
-        elif key == Qt.Key.Key_Q:
-            self.camera.move_up(-0.3)
-        elif key == Qt.Key.Key_E:
-            self.camera.move_up(0.3)
+        elif key in (Qt.Key.Key_W, Qt.Key.Key_A, Qt.Key.Key_S, Qt.Key.Key_D, Qt.Key.Key_Q, Qt.Key.Key_E):
+            self._pressed_keys.add(key)
+            if not self._free_camera:
+                super().keyPressEvent(event)
         else:
             super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event) -> None:
+        self._pressed_keys.discard(event.key())
+        super().keyReleaseEvent(event)
+
+    def _update_free_camera_motion(self, dt: float) -> None:
+        if not self._free_camera:
+            return
+        speed = 8.0
+        amount = speed * dt
+        if Qt.Key.Key_W in self._pressed_keys:
+            self.camera.move_forward(amount)
+        if Qt.Key.Key_S in self._pressed_keys:
+            self.camera.move_forward(-amount)
+        if Qt.Key.Key_A in self._pressed_keys:
+            self.camera.move_right(-amount)
+        if Qt.Key.Key_D in self._pressed_keys:
+            self.camera.move_right(amount)
+        if Qt.Key.Key_Q in self._pressed_keys:
+            self.camera.move_up(-amount)
+        if Qt.Key.Key_E in self._pressed_keys:
+            self.camera.move_up(amount)
 
     # ------------------------------------------------------------------
     # Placement mode
