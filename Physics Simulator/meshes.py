@@ -9,6 +9,7 @@ from typing import Callable, Dict, Tuple
 import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
+
 from math_utils import normalize
 
 _quadric = None

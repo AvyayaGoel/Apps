@@ -52,7 +52,7 @@ class EventBus:
 
     def publish(self, event_name: str, *args: Any, **kwargs: Any) -> None:
         """Notify all subscribers of `event_name`, passing along any arguments."""
-        for handler in list(self._subscribers.get(event_name, ())):
+        for handler in self._subscribers.get(event_name, ()):
             try:
                 handler(*args, **kwargs)
             except Exception as exc:  # pragma: no cover - defensive guard

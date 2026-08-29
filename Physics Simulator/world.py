@@ -10,9 +10,9 @@ from typing import List
 from body import RigidBody
 from collision import broad_phase_pairs, resolve_ground_contact, resolve_pair
 from config import SimulationConfig
+from constraints import Constraint
 from event_bus import bus
 from force_object import ForceObject
-from constraints import Constraint
 
 logger = logging.getLogger(__name__)
 

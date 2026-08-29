@@ -7,6 +7,7 @@ import random
 from typing import Tuple
 
 from OpenGL.GL import *
+
 from config import SimulationConfig
 
 RGB = Tuple[float, float, float]

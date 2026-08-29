@@ -10,13 +10,13 @@ from typing import Optional
 
 from body import RigidBody
 from config import SimulationConfig, config as global_config
+from constraints import HingeConstraint, RopeConstraint, SpringConstraint
 from event_bus import bus
 from factory import OBJECT_FACTORIES
 from force_object import ForceObject
 from math_utils import ray_sphere_intersect, vec3, quat_rotate_vector, quat_conjugate
-from world import PhysicsWorld
-from constraints import HingeConstraint, RopeConstraint, SpringConstraint
 from scene_model import PhysicalSystem, SceneMode
+from world import PhysicsWorld
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ class Scene:
             self.selected_force = None
             bus.publish("scene.selection_changed", self.selected_body)
         elif self.selected_body is not None:
-            for force in list(self.world.force_objects):
+            for force in self.world.force_objects:
                 if force.attached_to is self.selected_body:
                     self.detach_force(force)
             self.world.remove_body(self.selected_body)

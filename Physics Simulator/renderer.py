@@ -15,12 +15,12 @@ import meshes
 from body import RigidBody
 from camera import OrbitCamera
 from config import SimulationConfig
+from gizmo import TransformGizmo
 from math_utils import quat_to_matrix4, quat_from_axis_angle, normalize
 from scene import Scene
 from scenery import SceneryManager
 from sky import SkyRenderer, sun_direction
 from terrain import Terrain
-from gizmo import TransformGizmo
 
 logger = logging.getLogger(__name__)
 

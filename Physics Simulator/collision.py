@@ -7,12 +7,11 @@ Now supports proper box-box (SAT) and sphere-box collisions, enabling stable sta
 
 from __future__ import annotations
 
-import math
 from typing import List, Tuple, Optional
 
 import numpy as np
 
-from body import RigidBody, SHAPE_BOX, SHAPE_SPHERE, SHAPE_CYLINDER, SHAPE_CONE
+from body import RigidBody, SHAPE_BOX, SHAPE_SPHERE
 from math_utils import vec3, normalize, quat_rotate_vector, quat_conjugate
 
 GROUND_NORMAL = vec3(0.0, 1.0, 0.0)

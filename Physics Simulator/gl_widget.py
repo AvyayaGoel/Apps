@@ -16,10 +16,10 @@ from camera import OrbitCamera
 from config import SimulationConfig
 from event_bus import bus
 from force_object import ForceObject
+from gizmo import TransformGizmo
 from math_utils import ray_plane_intersect, vec3
 from renderer import Renderer
 from scene import Scene
-from gizmo import TransformGizmo
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +185,8 @@ class SandboxGLWidget(QOpenGLWidget):
         if self._gizmo_dragging and self.scene.selected_body:
             ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
             if self._gizmo_axis and self._gizmo_axis[0] == "rotate":
-                new_orientation = self.gizmo.update_rotation(ray_o, ray_d, self.scene.selected_body, self.camera.forward())
+                new_orientation = self.gizmo.update_rotation(ray_o, ray_d, self.scene.selected_body,
+                                                             self.camera.forward())
                 if new_orientation is not None:
                     self.scene.selected_body.orientation = new_orientation
                     self.scene.selected_body.angular_velocity[:] = 0.0

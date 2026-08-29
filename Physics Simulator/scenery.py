@@ -9,6 +9,7 @@ from typing import List, Tuple
 
 from OpenGL.GL import *
 from OpenGL.GLU import *
+
 from config import SimulationConfig
 
 

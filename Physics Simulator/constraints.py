@@ -6,12 +6,13 @@ Constraint classes: Spring, Rope (distance), Hinge (revolute).
 
 from __future__ import annotations
 
-import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional
 
+import numpy as np
+
 from body import RigidBody
-from math_utils import vec3, normalize, quat_rotate_vector, quat_conjugate
+from math_utils import vec3, normalize, quat_rotate_vector
 
 
 @dataclass

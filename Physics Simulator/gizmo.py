@@ -15,7 +15,8 @@ import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
-from math_utils import normalize, quat_from_axis_angle, quat_multiply, quat_rotate_vector, ray_plane_intersect, ray_sphere_intersect, vec3
+from math_utils import normalize, quat_from_axis_angle, quat_multiply, quat_rotate_vector, ray_plane_intersect, \
+    ray_sphere_intersect, vec3
 
 _AXIS_COLORS = [(1.0, 0.12, 0.12), (0.15, 0.85, 0.15), (0.15, 0.35, 1.0)]
 _LOCAL_AXES = [vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1)]
@@ -69,7 +70,7 @@ class TransformGizmo:
             # Cylinder axis is typically Y
             cyl_axis = quat_rotate_vector(body.orientation, vec3(0, 1, 0))
             radial_axes = [quat_rotate_vector(body.orientation, vec3(1, 0, 0)),
-                          quat_rotate_vector(body.orientation, vec3(0, 0, 1))]
+                           quat_rotate_vector(body.orientation, vec3(0, 0, 1))]
             # Distance = projection onto cylinder axis * half_height + radial * radius
             axial_dist = abs(np.dot(world_axis, cyl_axis)) * (h * 0.5)
             radial_dist = max(abs(np.dot(world_axis, ra)) for ra in radial_axes) * r
@@ -227,13 +228,13 @@ class TransformGizmo:
         sin_angle = float(np.dot(np.cross(self.rotation_start_vector, current), self.drag_axis))
         cos_angle = float(np.clip(np.dot(self.rotation_start_vector, current), -1.0, 1.0))
         angle = math.atan2(sin_angle, cos_angle)
-        
+
         # Fix rotation direction: invert angle if camera is looking opposite to rotation axis
         # This ensures dragging feels intuitive from the user's viewpoint
         if camera_forward is not None:
             if np.dot(self.drag_axis, camera_forward) < 0:
                 angle = -angle
-        
+
         delta = quat_from_axis_angle(self.drag_axis, angle)
         new_orientation = quat_multiply(delta, self.rotation_start_orientation)
         # Publish transform change for property panel sync

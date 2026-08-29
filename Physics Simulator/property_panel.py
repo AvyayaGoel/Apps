@@ -17,11 +17,11 @@ from PyQt6.QtWidgets import (
 )
 
 from body import RigidBody
+from constraints import SpringConstraint, RopeConstraint, HingeConstraint, Constraint
 from event_bus import bus
 from force_object import ForceObject, ForceType
-from math_utils import quat_from_axis_angle, quat_multiply, quat_rotate_vector, quat_conjugate
+from math_utils import quat_from_axis_angle, quat_multiply
 from scene import Scene
-from constraints import SpringConstraint, RopeConstraint, HingeConstraint, Constraint
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class PropertyPanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        
+
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
         content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -83,27 +83,27 @@ class PropertyPanel(QWidget):
         # Basic info labels (read-only)
         basic_grid = QGridLayout()
         basic_grid.setSpacing(6)
-        
+
         self.kind_label = QLabel("-")
         self.kind_label.setStyleSheet("color: #7fb0ff;")
         basic_grid.addWidget(QLabel("Kind:"), 0, 0)
         basic_grid.addWidget(self.kind_label, 0, 1)
-        
+
         self.position_label = QLabel("-")
         basic_grid.addWidget(QLabel("Position:"), 0, 2)
         basic_grid.addWidget(self.position_label, 0, 3)
-        
+
         self.velocity_label = QLabel("-")
         basic_grid.addWidget(QLabel("Velocity:"), 1, 0)
         basic_grid.addWidget(self.velocity_label, 1, 1)
-        
+
         info_layout.addLayout(basic_grid)
 
         # Physical properties grid (2 columns)
         phys_group = QLabel("Physical Properties")
         phys_group.setStyleSheet("font-weight: bold; color: #aaf;")
         info_layout.addWidget(phys_group)
-        
+
         phys_grid = QGridLayout()
         phys_grid.setSpacing(6)
         phys_grid.setColumnStretch(1, 1)
@@ -159,7 +159,7 @@ class PropertyPanel(QWidget):
         transform_group = QLabel("Transform")
         transform_group.setStyleSheet("font-weight: bold; color: #aaf;")
         info_layout.addWidget(transform_group)
-        
+
         transform_grid = QGridLayout()
         transform_grid.setSpacing(6)
 
@@ -171,14 +171,14 @@ class PropertyPanel(QWidget):
         self.pos_x.setDecimals(3)
         self.pos_x.valueChanged.connect(self._on_position_changed)
         transform_grid.addWidget(self.pos_x, 0, 1)
-        
+
         self.pos_y = QDoubleSpinBox()
         self.pos_y.setRange(-100, 100)
         self.pos_y.setSingleStep(0.1)
         self.pos_y.setDecimals(3)
         self.pos_y.valueChanged.connect(self._on_position_changed)
         transform_grid.addWidget(self.pos_y, 0, 2)
-        
+
         self.pos_z = QDoubleSpinBox()
         self.pos_z.setRange(-100, 100)
         self.pos_z.setSingleStep(0.1)
@@ -195,7 +195,7 @@ class PropertyPanel(QWidget):
         self.yaw_spin.setDecimals(1)
         self.yaw_spin.valueChanged.connect(self._on_rotation_changed)
         transform_grid.addWidget(self.yaw_spin, 1, 1)
-        
+
         self.pitch_spin = QDoubleSpinBox()
         self.pitch_spin.setRange(-180, 180)
         self.pitch_spin.setSingleStep(1)
@@ -203,7 +203,7 @@ class PropertyPanel(QWidget):
         self.pitch_spin.setDecimals(1)
         self.pitch_spin.valueChanged.connect(self._on_rotation_changed)
         transform_grid.addWidget(self.pitch_spin, 1, 2)
-        
+
         self.roll_spin = QDoubleSpinBox()
         self.roll_spin.setRange(-180, 180)
         self.roll_spin.setSingleStep(1)
@@ -220,14 +220,14 @@ class PropertyPanel(QWidget):
         self.vel_x.setDecimals(2)
         self.vel_x.valueChanged.connect(self._on_velocity_changed)
         transform_grid.addWidget(self.vel_x, 2, 1)
-        
+
         self.vel_y = QDoubleSpinBox()
         self.vel_y.setRange(-100, 100)
         self.vel_y.setSingleStep(0.1)
         self.vel_y.setDecimals(2)
         self.vel_y.valueChanged.connect(self._on_velocity_changed)
         transform_grid.addWidget(self.vel_y, 2, 2)
-        
+
         self.vel_z = QDoubleSpinBox()
         self.vel_z.setRange(-100, 100)
         self.vel_z.setSingleStep(0.1)
@@ -277,14 +277,14 @@ class PropertyPanel(QWidget):
         self.force_offset_x.setDecimals(3)
         self.force_offset_x.valueChanged.connect(self._on_force_offset_changed)
         force_grid.addWidget(self.force_offset_x, 1, 1)
-        
+
         self.force_offset_y = QDoubleSpinBox()
         self.force_offset_y.setRange(-10, 10)
         self.force_offset_y.setSingleStep(0.05)
         self.force_offset_y.setDecimals(3)
         self.force_offset_y.valueChanged.connect(self._on_force_offset_changed)
         force_grid.addWidget(self.force_offset_y, 1, 2)
-        
+
         self.force_offset_z = QDoubleSpinBox()
         self.force_offset_z.setRange(-10, 10)
         self.force_offset_z.setSingleStep(0.05)
@@ -307,14 +307,14 @@ class PropertyPanel(QWidget):
         self.force_dir_x.setDecimals(3)
         self.force_dir_x.valueChanged.connect(self._on_force_dir_changed)
         force_grid.addWidget(self.force_dir_x, 3, 1)
-        
+
         self.force_dir_y = QDoubleSpinBox()
         self.force_dir_y.setRange(-1, 1)
         self.force_dir_y.setSingleStep(0.05)
         self.force_dir_y.setDecimals(3)
         self.force_dir_y.valueChanged.connect(self._on_force_dir_changed)
         force_grid.addWidget(self.force_dir_y, 3, 2)
-        
+
         self.force_dir_z = QDoubleSpinBox()
         self.force_dir_z.setRange(-1, 1)
         self.force_dir_z.setSingleStep(0.05)
@@ -373,11 +373,11 @@ class PropertyPanel(QWidget):
         self.con_type_label = QLabel("-")
         con_grid.addWidget(QLabel("Type:"), 0, 0)
         con_grid.addWidget(self.con_type_label, 0, 1)
-        
+
         self.con_body_a_label = QLabel("-")
         con_grid.addWidget(QLabel("Body A:"), 0, 2)
         con_grid.addWidget(self.con_body_a_label, 0, 3)
-        
+
         self.con_body_b_label = QLabel("-")
         con_grid.addWidget(QLabel("Body B:"), 1, 0)
         con_grid.addWidget(self.con_body_b_label, 1, 1)
@@ -421,15 +421,15 @@ class PropertyPanel(QWidget):
         # ---- Action buttons ----
         action_layout = QVBoxLayout()
         action_layout.setSpacing(6)
-        
+
         self.kick_button = QPushButton("Kick / Throw (Space)")
         self.kick_button.clicked.connect(lambda: self.scene.apply_random_impulse())
         action_layout.addWidget(self.kick_button)
-        
+
         self.delete_button = QPushButton("Delete Selected (Del)")
         self.delete_button.clicked.connect(self.scene.delete_selected)
         action_layout.addWidget(self.delete_button)
-        
+
         content_layout.addLayout(action_layout)
         content_layout.addStretch(1)
 
@@ -560,7 +560,7 @@ class PropertyPanel(QWidget):
         siny_cosp = 2 * (w * z + x * y)
         cosy_cosp = 1 - 2 * (y * y + z * z)
         yaw = np.arctan2(siny_cosp, cosy_cosp)
-        
+
         self.yaw_spin.blockSignals(True)
         self.pitch_spin.blockSignals(True)
         self.roll_spin.blockSignals(True)

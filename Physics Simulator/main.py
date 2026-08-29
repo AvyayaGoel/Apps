@@ -10,6 +10,7 @@ almost everything interesting happens inside scene/, physics/,
 rendering/, and ui/.
 """
 
+import logging
 import sys
 
 from PyQt6.QtWidgets import QApplication
@@ -17,7 +18,6 @@ from PyQt6.QtWidgets import QApplication
 from config import config
 from main_window import MainWindow
 from scene import Scene
-import logging
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
