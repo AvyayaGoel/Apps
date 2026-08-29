@@ -29,6 +29,7 @@ class ToolbarPanel(QWidget):
         layout.setSpacing(8)
 
         layout.addWidget(CollapsiblePanel("Objects / Shapes", self._build_spawn_group(), expanded=True))
+        layout.addWidget(CollapsiblePanel("Construction / Simulation", self._build_scene_controls_group(), expanded=True))
         layout.addWidget(CollapsiblePanel("Scene", self._build_scene_controls_group(), expanded=True))
         layout.addWidget(CollapsiblePanel("World", self._build_environment_group(), expanded=True))
         layout.addWidget(CollapsiblePanel("Constraints", self._build_constraints_group(), expanded=False))
@@ -97,6 +98,18 @@ class ToolbarPanel(QWidget):
         place_btn.setCheckable(True)
         place_btn.toggled.connect(lambda checked: bus.publish("input.set_place_mode", checked))
         layout.addWidget(place_btn)
+
+        attach_btn = QPushButton("Attach Force → Body")
+        attach_btn.clicked.connect(self.scene.attach_selected_force_to_body)
+        layout.addWidget(attach_btn)
+
+        simulate_btn = QPushButton("Simulate")
+        simulate_btn.clicked.connect(self.scene.begin_simulation)
+        layout.addWidget(simulate_btn)
+
+        stop_btn = QPushButton("Stop / Construct")
+        stop_btn.clicked.connect(self.scene.stop_simulation)
+        layout.addWidget(stop_btn)
 
         return box
 
@@ -218,7 +231,7 @@ class ToolbarPanel(QWidget):
             return
         hinge = HingeConstraint(body_a, body_b,
                                 anchor_a=np.zeros(3), anchor_b=np.zeros(3),
-                                axis=[0, 1, 0])
+                                axis=np.array([0.0, 1.0, 0.0]))
         self.scene.world.add_constraint(hinge)
 
     # ------------------------------------------------------------------

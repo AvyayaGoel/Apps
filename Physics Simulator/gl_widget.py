@@ -143,11 +143,11 @@ class SandboxGLWidget(QOpenGLWidget):
         if self.show_gizmo and self.scene.selected_body:
             ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
             body = self.scene.selected_body
-            axis, hit = self.gizmo.pick(ray_o, ray_d, body.position, body.orientation, scale=body.scale)
-            if axis is not None and event.button() == Qt.MouseButton.LeftButton:
+            handle, hit = self.gizmo.pick(ray_o, ray_d, body)
+            if handle is not None and event.button() == Qt.MouseButton.LeftButton:
                 self._gizmo_dragging = True
-                self._gizmo_axis = axis
-                self.gizmo.start_drag(axis, hit, body.position)
+                self._gizmo_axis = handle
+                self.gizmo.start_drag(handle, hit, body)
                 return
 
         if event.button() == Qt.MouseButton.LeftButton:
@@ -184,10 +184,18 @@ class SandboxGLWidget(QOpenGLWidget):
         # Gizmo drag
         if self._gizmo_dragging and self.scene.selected_body:
             ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
-            new_pos = self.gizmo.update_drag(ray_o, ray_d, self.scene.selected_body.position)
-            if new_pos is not None:
-                self.scene.selected_body.position = new_pos
-                self.scene.selected_body.wake()
+            if self._gizmo_axis and self._gizmo_axis[0] == "rotate":
+                new_orientation = self.gizmo.update_rotation(ray_o, ray_d, self.scene.selected_body)
+                if new_orientation is not None:
+                    self.scene.selected_body.orientation = new_orientation
+                    self.scene.selected_body.angular_velocity[:] = 0.0
+                    self.scene.selected_body.wake()
+            else:
+                new_pos = self.gizmo.update_drag(ray_o, ray_d, self.scene.selected_body)
+                if new_pos is not None:
+                    self.scene.selected_body.position = new_pos
+                    self.scene.selected_body.velocity[:] = 0.0
+                    self.scene.selected_body.wake()
             return
 
         if self._dragging_body is not None:

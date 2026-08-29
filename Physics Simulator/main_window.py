@@ -20,6 +20,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("3D Physics Sandbox")
         self.resize(1400, 900)
         self.setStyleSheet("""
+            QMainWindow, QScrollArea, QWidget#sidePanel {
+                background: #20242a;
+                color: #eef2f6;
+            }
+            QToolButton {
+                background: #30343b;
+                color: #eef2f6;
+                border: 1px solid #58606b;
             QToolButton {
                 background: #30343b;
                 color: #eef2f6;
@@ -30,6 +38,39 @@ class MainWindow(QMainWindow):
                 text-align: left;
             }
             QFrame#collapsibleContent {
+                background: #272c33;
+                color: #eef2f6;
+                border: 1px solid #454d58;
+                border-top: 0;
+            }
+            QLabel, QCheckBox { color: #eef2f6; }
+            QPushButton {
+                background: #3a4452;
+                color: #f6f8fa;
+                border: 1px solid #667386;
+                border-radius: 4px;
+                padding: 5px 8px;
+            }
+            QPushButton:hover { background: #465367; }
+            QPushButton:checked { background: #2d6cdf; }
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: #15181d;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #7fb0ff;
+                border: 1px solid #d6e6ff;
+                width: 14px;
+                margin: -5px 0;
+                border-radius: 7px;
+            }
+            QDoubleSpinBox, QComboBox {
+                background: #15181d;
+                color: #eef2f6;
+                border: 1px solid #596372;
+                padding: 3px;
+            }
                 background: #f3f4f6;
                 border: 1px solid #c7ccd4;
                 border-top: 0;
@@ -45,6 +86,7 @@ class MainWindow(QMainWindow):
 
         # Left panel: collapsible toolbox
         left_widget = QWidget()
+        left_widget.setObjectName("sidePanel")
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(0)
@@ -65,6 +107,7 @@ class MainWindow(QMainWindow):
 
         # Right panel: properties with scroll
         right_widget = QWidget()
+        right_widget.setObjectName("sidePanel")
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)

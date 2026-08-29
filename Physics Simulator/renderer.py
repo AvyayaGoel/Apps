@@ -156,7 +156,7 @@ class Renderer:
             if body is scene.selected_body:
                 if self.gizmo and scene.selected_body:
                     body = scene.selected_body
-                    self.gizmo.draw(body.position, body.orientation, scale=body.scale)
+                    self.gizmo.draw(body)
 
     @staticmethod
     def _draw_force_selection_highlight(position: np.ndarray) -> None:
