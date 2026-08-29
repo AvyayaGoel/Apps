@@ -5,7 +5,7 @@ ui/main_window.py – now uses a fixed, collapsible side panel instead of docks.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMainWindow, QScrollArea, QSplitter, QStatusBar, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QMainWindow, QScrollArea, QSplitter, QVBoxLayout, QWidget
 
 from config import SimulationConfig
 from gl_widget import SandboxGLWidget
@@ -24,10 +24,6 @@ class MainWindow(QMainWindow):
                 background: #20242a;
                 color: #eef2f6;
             }
-            QToolButton {
-                background: #30343b;
-                color: #eef2f6;
-                border: 1px solid #58606b;
             QToolButton {
                 background: #30343b;
                 color: #eef2f6;

@@ -5,17 +5,16 @@ ui/toolbar.py – now includes density, scale, and constraint creation.
 from __future__ import annotations
 
 import numpy as np
-
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget, QDoubleSpinBox, QCheckBox
+    QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 )
 
 from config import SimulationConfig
-from event_bus import bus
-from scene import Scene
 from constraints import SpringConstraint, RopeConstraint, HingeConstraint
+from event_bus import bus
 from panel_widgets import CollapsiblePanel
+from scene import Scene
 
 
 class ToolbarPanel(QWidget):
@@ -30,7 +29,6 @@ class ToolbarPanel(QWidget):
 
         layout.addWidget(CollapsiblePanel("Objects / Shapes", self._build_spawn_group(), expanded=True))
         layout.addWidget(CollapsiblePanel("Construction / Simulation", self._build_scene_controls_group(), expanded=True))
-        layout.addWidget(CollapsiblePanel("Scene", self._build_scene_controls_group(), expanded=True))
         layout.addWidget(CollapsiblePanel("World", self._build_environment_group(), expanded=True))
         layout.addWidget(CollapsiblePanel("Constraints", self._build_constraints_group(), expanded=False))
         layout.addStretch(1)
