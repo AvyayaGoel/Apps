@@ -151,6 +151,7 @@ class Scene:
         self.selected_body.position = vec3(*world_pos)
         self.selected_body.velocity[:] = 0.0
         self.selected_body.wake()
+        bus.publish("scene.body_transform_changed", self.selected_body)
 
     def move_selected_force_to(self, world_pos) -> None:
         if self.selected_force is None:
