@@ -533,11 +533,21 @@ class PropertyPanel(QWidget):
         spin.blockSignals(False)
 
     def _update_velocity_spins(self, vel):
-        self.vel_x.setValue(vel[0])
-        self.vel_y.setValue(vel[1])
-        self.vel_z.setValue(vel[2])
+        """Update velocity spinboxes without triggering signals."""
+        self.vel_x.blockSignals(True)
+        self.vel_y.blockSignals(True)
+        self.vel_z.blockSignals(True)
+        try:
+            self.vel_x.setValue(vel[0])
+            self.vel_y.setValue(vel[1])
+            self.vel_z.setValue(vel[2])
+        finally:
+            self.vel_x.blockSignals(False)
+            self.vel_y.blockSignals(False)
+            self.vel_z.blockSignals(False)
 
     def _update_rotation_spins(self, quat):
+        """Update rotation spinboxes without triggering signals."""
         x, y, z, w = quat
         sinr_cosp = 2 * (w * x + y * z)
         cosr_cosp = 1 - 2 * (x * x + y * y)
@@ -550,9 +560,18 @@ class PropertyPanel(QWidget):
         siny_cosp = 2 * (w * z + x * y)
         cosy_cosp = 1 - 2 * (y * y + z * z)
         yaw = np.arctan2(siny_cosp, cosy_cosp)
-        self.yaw_spin.setValue(np.degrees(yaw))
-        self.pitch_spin.setValue(np.degrees(pitch))
-        self.roll_spin.setValue(np.degrees(roll))
+        
+        self.yaw_spin.blockSignals(True)
+        self.pitch_spin.blockSignals(True)
+        self.roll_spin.blockSignals(True)
+        try:
+            self.yaw_spin.setValue(np.degrees(yaw))
+            self.pitch_spin.setValue(np.degrees(pitch))
+            self.roll_spin.setValue(np.degrees(roll))
+        finally:
+            self.yaw_spin.blockSignals(False)
+            self.pitch_spin.blockSignals(False)
+            self.roll_spin.blockSignals(False)
 
     def _refresh_live_fields(self):
         if self._current is None:
