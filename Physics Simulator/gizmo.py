@@ -206,7 +206,11 @@ class TransformGizmo:
         t = (a * e - b * d) / denom
         if s < 0:
             return None
-        return self.drag_origin + t * self.drag_axis
+        new_pos = self.drag_origin + t * self.drag_axis
+        # Publish transform change for property panel sync
+        from event_bus import bus
+        bus.publish("scene.body_transform_changed", body)
+        return new_pos
 
     def update_rotation(self, ray_origin, ray_dir, body, camera_forward=None):
         if self.selected_axis is None or self.selected_mode != "rotate" or self.rotation_start_vector is None:
@@ -231,4 +235,8 @@ class TransformGizmo:
                 angle = -angle
         
         delta = quat_from_axis_angle(self.drag_axis, angle)
-        return quat_multiply(delta, self.rotation_start_orientation)
+        new_orientation = quat_multiply(delta, self.rotation_start_orientation)
+        # Publish transform change for property panel sync
+        from event_bus import bus
+        bus.publish("scene.body_transform_changed", body)
+        return new_orientation
