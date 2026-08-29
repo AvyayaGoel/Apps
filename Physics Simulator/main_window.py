@@ -28,6 +28,10 @@ class MainWindow(QMainWindow):
                 background: #30343b;
                 color: #eef2f6;
                 border: 1px solid #58606b;
+            QToolButton {
+                background: #30343b;
+                color: #eef2f6;
+                border: 1px solid #4a505a;
                 border-radius: 4px;
                 padding: 6px;
                 font-weight: 600;
@@ -66,6 +70,10 @@ class MainWindow(QMainWindow):
                 color: #eef2f6;
                 border: 1px solid #596372;
                 padding: 3px;
+            }
+                background: #f3f4f6;
+                border: 1px solid #c7ccd4;
+                border-top: 0;
             }
         """)
 
