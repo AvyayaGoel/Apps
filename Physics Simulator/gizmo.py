@@ -23,13 +23,13 @@ _LOCAL_AXES = [vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1)]
 
 class TransformGizmo:
     def __init__(self):
-        self.axis_length = 1.2
-        self.cone_radius = 0.12
-        self.cone_height = 0.25
-        self.shaft_radius = 0.025
-        self.hit_radius = 0.25
-        self.ring_radius = 1.55
-        self.ring_hit_radius = 0.18
+        self.axis_length = 1.0
+        self.cone_radius = 0.10
+        self.cone_height = 0.20
+        self.shaft_radius = 0.020
+        self.hit_radius = 0.20
+        self.ring_radius_factor = 1.35  # Multiplier for object radius
+        self.ring_hit_radius = 0.15
         self.selected_axis: Optional[int] = None
         self.selected_mode: Optional[str] = None
         self.drag_axis = None
@@ -44,6 +44,39 @@ class TransformGizmo:
     def _object_radius(self, body) -> float:
         return max(0.35, float(body.bounding_radius()))
 
+    def _arrow_start_offset(self, body, axis_index: int) -> float:
+        """Calculate where the arrow should start to touch the object surface.
+        
+        This computes the distance from center to surface along the given axis,
+        accounting for object shape, scale, and orientation.
+        """
+        if body.shape == "sphere":
+            return body.get_scaled_radius()
+        elif body.shape == "box":
+            he = body.get_scaled_half_extents()
+            # Project half-extents onto the world axis
+            axes = [quat_rotate_vector(body.orientation, np.array([1, 0, 0])),
+                    quat_rotate_vector(body.orientation, np.array([0, 1, 0])),
+                    quat_rotate_vector(body.orientation, np.array([0, 0, 1]))]
+            # Distance along axis = sum of |axis·local_axis| * half_extent
+            world_axis = self._axis_world(body.orientation, axis_index)
+            offset = sum(abs(np.dot(world_axis, axes[i])) * he[i] for i in range(3))
+            return offset
+        elif body.shape in ("cylinder", "cone"):
+            r = body.get_scaled_radius()
+            h = body.shape_params.get("height", 1.0) * body.scale
+            world_axis = self._axis_world(body.orientation, axis_index)
+            # Cylinder axis is typically Y
+            cyl_axis = quat_rotate_vector(body.orientation, vec3(0, 1, 0))
+            radial_axes = [quat_rotate_vector(body.orientation, vec3(1, 0, 0)),
+                          quat_rotate_vector(body.orientation, vec3(0, 0, 1))]
+            # Distance = projection onto cylinder axis * half_height + radial * radius
+            axial_dist = abs(np.dot(world_axis, cyl_axis)) * (h * 0.5)
+            radial_dist = max(abs(np.dot(world_axis, ra)) for ra in radial_axes) * r
+            return axial_dist + radial_dist
+        else:
+            return self._object_radius(body)
+
     def draw(self, body):
         """Draw arrows from object sides and object-oriented rotation rings."""
         position = body.position
@@ -57,10 +90,14 @@ class TransformGizmo:
         q = gluNewQuadric()
         for i, color in enumerate(_AXIS_COLORS):
             axis = self._axis_world(orientation, i)
-            start = position + axis * radius
+            # Start arrow at object surface along this axis
+            start_offset = self._arrow_start_offset(body, i)
+            start = position + axis * start_offset
             glColor3f(*color)
             self._draw_arrow(q, start, axis, arrow_length)
-            self._draw_ring(position, orientation, i, radius * self.ring_radius)
+            # Draw rotation ring at a reasonable distance from object
+            ring_radius = radius * self.ring_radius_factor
+            self._draw_ring(position, orientation, i, ring_radius)
         gluDeleteQuadric(q)
         glPopAttrib()
 
@@ -171,7 +208,7 @@ class TransformGizmo:
             return None
         return self.drag_origin + t * self.drag_axis
 
-    def update_rotation(self, ray_origin, ray_dir, body):
+    def update_rotation(self, ray_origin, ray_dir, body, camera_forward=None):
         if self.selected_axis is None or self.selected_mode != "rotate" or self.rotation_start_vector is None:
             return None
         t = ray_plane_intersect(ray_origin, ray_dir, body.position, self.drag_axis)
@@ -186,5 +223,12 @@ class TransformGizmo:
         sin_angle = float(np.dot(np.cross(self.rotation_start_vector, current), self.drag_axis))
         cos_angle = float(np.clip(np.dot(self.rotation_start_vector, current), -1.0, 1.0))
         angle = math.atan2(sin_angle, cos_angle)
+        
+        # Fix rotation direction: invert angle if camera is looking opposite to rotation axis
+        # This ensures dragging feels intuitive from the user's viewpoint
+        if camera_forward is not None:
+            if np.dot(self.drag_axis, camera_forward) < 0:
+                angle = -angle
+        
         delta = quat_from_axis_angle(self.drag_axis, angle)
         return quat_multiply(delta, self.rotation_start_orientation)
