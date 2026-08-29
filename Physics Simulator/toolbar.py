@@ -4,15 +4,18 @@ ui/toolbar.py – now includes density, scale, and constraint creation.
 
 from __future__ import annotations
 
+import numpy as np
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget, QDoubleSpinBox, QCheckBox
+    QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget, QDoubleSpinBox, QCheckBox
 )
 
 from config import SimulationConfig
 from event_bus import bus
 from scene import Scene
 from constraints import SpringConstraint, RopeConstraint, HingeConstraint
+from panel_widgets import CollapsiblePanel
 
 
 class ToolbarPanel(QWidget):
@@ -25,19 +28,20 @@ class ToolbarPanel(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.setSpacing(8)
 
-        layout.addWidget(self._build_spawn_group())
-        layout.addWidget(self._build_scene_controls_group())
-        layout.addWidget(self._build_environment_group())
-        layout.addWidget(self._build_constraints_group())
+        layout.addWidget(CollapsiblePanel("Objects / Shapes", self._build_spawn_group(), expanded=True))
+        layout.addWidget(CollapsiblePanel("Construction / Simulation", self._build_scene_controls_group(), expanded=True))
+        layout.addWidget(CollapsiblePanel("World", self._build_environment_group(), expanded=True))
+        layout.addWidget(CollapsiblePanel("Constraints", self._build_constraints_group(), expanded=False))
         layout.addStretch(1)
 
     # ------------------------------------------------------------------
     # Object spawning (expanded with walls, pyramid, etc.)
     # ------------------------------------------------------------------
 
-    def _build_spawn_group(self) -> QGroupBox:
-        box = QGroupBox("Add Object")
+    def _build_spawn_group(self) -> QWidget:
+        box = QWidget()
         grid = QVBoxLayout(box)
+        grid.setContentsMargins(0, 0, 0, 0)
 
         # Row 1: basic shapes
         row1 = QHBoxLayout()
@@ -76,9 +80,10 @@ class ToolbarPanel(QWidget):
     # Scene controls
     # ------------------------------------------------------------------
 
-    def _build_scene_controls_group(self) -> QGroupBox:
-        box = QGroupBox("Scene")
+    def _build_scene_controls_group(self) -> QWidget:
+        box = QWidget()
         layout = QHBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         clear_btn = QPushButton("Clear All")
         clear_btn.clicked.connect(self.scene.clear_all)
@@ -93,15 +98,28 @@ class ToolbarPanel(QWidget):
         place_btn.toggled.connect(lambda checked: bus.publish("input.set_place_mode", checked))
         layout.addWidget(place_btn)
 
+        attach_btn = QPushButton("Attach Force → Body")
+        attach_btn.clicked.connect(self.scene.attach_selected_force_to_body)
+        layout.addWidget(attach_btn)
+
+        simulate_btn = QPushButton("Simulate")
+        simulate_btn.clicked.connect(self.scene.begin_simulation)
+        layout.addWidget(simulate_btn)
+
+        stop_btn = QPushButton("Stop / Construct")
+        stop_btn.clicked.connect(self.scene.stop_simulation)
+        layout.addWidget(stop_btn)
+
         return box
 
     # ------------------------------------------------------------------
     # Environment sliders
     # ------------------------------------------------------------------
 
-    def _build_environment_group(self) -> QGroupBox:
-        box = QGroupBox("Environment")
+    def _build_environment_group(self) -> QWidget:
+        box = QWidget()
         layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         layout.addWidget(self._make_slider_row(
             "Time of Day", 0, 240, int(self.config.time_of_day_hours * 10),
@@ -163,9 +181,10 @@ class ToolbarPanel(QWidget):
     # Constraints group
     # ------------------------------------------------------------------
 
-    def _build_constraints_group(self) -> QGroupBox:
-        box = QGroupBox("Constraints")
+    def _build_constraints_group(self) -> QWidget:
+        box = QWidget()
         layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         # Create buttons for each constraint type
         spring_btn = QPushButton("Add Spring (selected bodies)")
@@ -211,7 +230,7 @@ class ToolbarPanel(QWidget):
             return
         hinge = HingeConstraint(body_a, body_b,
                                 anchor_a=np.zeros(3), anchor_b=np.zeros(3),
-                                axis=[0, 1, 0])
+                                axis=np.array([0.0, 1.0, 0.0]))
         self.scene.world.add_constraint(hinge)
 
     # ------------------------------------------------------------------

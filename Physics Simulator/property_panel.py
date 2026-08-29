@@ -157,8 +157,10 @@ class PropertyPanel(QWidget):
         self.force_active_cb = QCheckBox("Active")
         self.force_active_cb.toggled.connect(self._on_force_active_toggled)
 
-        self.force_attach_btn = QPushButton("Attach to Selected Body")
+        self.force_attach_btn = QPushButton("Attach Selected Force to Selected Body")
         self.force_attach_btn.clicked.connect(self._attach_force_to_selected)
+
+        self.force_system_label = QLabel("-")
 
         self.force_detach_btn = QPushButton("Detach Force")
         self.force_detach_btn.clicked.connect(self._detach_force)
@@ -172,6 +174,7 @@ class PropertyPanel(QWidget):
         force_form.addRow("Dir Y:", self.force_dir_y)
         force_form.addRow("Dir Z:", self.force_dir_z)
         force_form.addRow("Type:", self.force_type_cb)
+        force_form.addRow("System:", self.force_system_label)
         force_form.addRow("", self.force_active_cb)
         force_form.addRow("", self.force_attach_btn)
         force_form.addRow("", self.force_detach_btn)
@@ -239,15 +242,11 @@ class PropertyPanel(QWidget):
     def _on_selection_changed(self, obj) -> None:
         if isinstance(obj, RigidBody):
             self._set_selected(obj)
-            self._set_force_selected(None)
             self._set_constraint_selected(None)
         elif isinstance(obj, ForceObject):
-            self._set_selected(None)
             self._set_force_selected(obj)
             self._set_constraint_selected(None)
         elif isinstance(obj, (SpringConstraint, RopeConstraint, HingeConstraint)):
-            self._set_selected(None)
-            self._set_force_selected(None)
             self._set_constraint_selected(obj)
         else:
             self._set_selected(None)
@@ -258,7 +257,7 @@ class PropertyPanel(QWidget):
         self._current = body
         has = body is not None
         self.info_box.setVisible(has)
-        self.empty_label.setVisible(not has and self._current_force is None and self._current_constraint is None)
+        self._update_empty_label()
         self.kick_button.setEnabled(has)
         self.delete_button.setEnabled(has or self._current_force is not None or self._current_constraint is not None)
         if body is not None:
@@ -279,7 +278,7 @@ class PropertyPanel(QWidget):
         self._current_force = force
         has_force = force is not None
         self.force_box.setVisible(has_force)
-        self.empty_label.setVisible(not has_force and self._current is None and self._current_constraint is None)
+        self._update_empty_label()
         self.delete_button.setEnabled(has_force or self._current is not None or self._current_constraint is not None)
         if force is not None:
             self._blocked_set(self.force_mag_spin, force.magnitude)
@@ -288,6 +287,9 @@ class PropertyPanel(QWidget):
             self._blocked_set(self.force_dir_z, force.direction[2])
             self.force_type_cb.setCurrentText(force.force_type.value)
             self.force_active_cb.setChecked(force.is_active)
+            self.force_system_label.setText(
+                f"Attached to body {force.attached_to.id}" if force.attached_to is not None else "Independent construction force"
+            )
             self._blocked_set(self.force_offset_x, force.local_offset[0])
             self._blocked_set(self.force_offset_y, force.local_offset[1])
             self._blocked_set(self.force_offset_z, force.local_offset[2])
@@ -297,7 +299,7 @@ class PropertyPanel(QWidget):
         self._current_constraint = con
         has_con = con is not None
         self.constraint_box.setVisible(has_con)
-        self.empty_label.setVisible(not has_con and self._current is None and self._current_force is None)
+        self._update_empty_label()
         self.delete_button.setEnabled(has_con or self._current is not None or self._current_force is not None)
         if con is not None:
             self.con_type_label.setText(type(con).__name__)
@@ -308,6 +310,11 @@ class PropertyPanel(QWidget):
             rest = getattr(con, 'rest_length', 0.0) if hasattr(con, 'rest_length') else getattr(con, 'max_length', 0.0)
             self._blocked_set(self.con_rest_length, rest)
             self.con_enabled_cb.setChecked(con.enabled)
+
+    def _update_empty_label(self):
+        self.empty_label.setVisible(
+            self._current is None and self._current_force is None and self._current_constraint is None
+        )
 
     def _blocked_set(self, spin, value):
         spin.blockSignals(True)
@@ -347,6 +354,10 @@ class PropertyPanel(QWidget):
             return
         pos = self._current_force.get_world_position()
         self.force_pos_label.setText(_fmt_vec(pos))
+        self.force_system_label.setText(
+            f"Attached to body {self._current_force.attached_to.id}"
+            if self._current_force.attached_to is not None else "Independent construction force"
+        )
 
     # ------------------------------------------------------------------
     # Editing callbacks
@@ -450,16 +461,13 @@ class PropertyPanel(QWidget):
     def _attach_force_to_selected(self):
         if self._current_force is None or self._current is None:
             return
-        body = self._current
-        force = self._current_force
-        force.attached_to = body
-        delta = force.position - body.position
-        force.local_offset = quat_rotate_vector(quat_conjugate(body.orientation), delta)
+        self.scene.attach_force_to_body(self._current_force, self._current)
+        self._refresh_force_live_fields()
 
     def _detach_force(self):
         if self._current_force is not None:
-            self._current_force.attached_to = None
-            self._current_force.position = self._current_force.get_world_position()
+            self.scene.detach_force(self._current_force)
+            self._refresh_force_live_fields()
 
     # ------------------------------------------------------------------
     # Constraint editing

@@ -12,6 +12,7 @@ class SimulationConfig:
     gravity: float = 9.8
     fixed_timestep: float = 1.0 / 120.0
     max_substeps: int = 8
+    collision_solver_iterations: int = 6
     ground_friction: float = 0.6
     ground_restitution: float = 0.4
     air_damping: float = 0.999
@@ -40,9 +41,9 @@ class SimulationConfig:
     target_fps: int = 60
     frustum_culling_enabled: bool = True
     shadow_enabled: bool = True
-    tree_count: int = 32  # more trees
-    cloud_count: int = 14
-    mountain_segments: int = 48
+    tree_count: int = 96
+    cloud_count: int = 20
+    mountain_segments: int = 72
 
     # --- Object defaults -----------------------------------------------
     default_object_mass: float = 1.0

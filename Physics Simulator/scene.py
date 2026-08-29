@@ -16,6 +16,7 @@ from force_object import ForceObject
 from math_utils import ray_sphere_intersect, vec3, quat_rotate_vector, quat_conjugate
 from world import PhysicsWorld
 from constraints import HingeConstraint, RopeConstraint, SpringConstraint
+from scene_model import PhysicalSystem, SceneMode
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,8 @@ class Scene:
         self.secondary_selected_body: Optional[RigidBody] = None  # for constraints
         self.selected_force: Optional[ForceObject] = None
         self.selected_constraint: Optional[object] = None
+        self.mode = SceneMode.CONSTRUCTION
+        self.physical_systems: list[PhysicalSystem] = []
         self.time_of_day = config.time_of_day_hours
 
         bus.subscribe("input.set_time_of_day", self._on_set_time_of_day)
@@ -43,6 +46,8 @@ class Scene:
         if position is None:
             position = (random.uniform(-3, 3), 4.0 + random.uniform(0, 2), random.uniform(-3, 3))
         body = factory(self.config, position, color)
+        body.velocity[:] = 0.0
+        body.angular_velocity[:] = 0.0
         self.world.add_body(body)
         bus.publish("scene.object_spawned", body)
         logger.info(f"Spawned {kind} at {position}")
@@ -70,20 +75,16 @@ class Scene:
             # If shift held, set as secondary
             # We'll handle via a method in gl_widget: set_secondary
             self.selected_body = obj
-            self.selected_force = None
             self.selected_constraint = None
             bus.publish("scene.selection_changed", obj)
             logger.info(f"Selected body {obj.id}")
         elif isinstance(obj, ForceObject):
             self.selected_force = obj
-            self.selected_body = None
             self.selected_constraint = None
             bus.publish("scene.selection_changed", obj)
             logger.info(f"Selected force object {id(obj)}")
         elif isinstance(obj, (SpringConstraint, RopeConstraint, HingeConstraint)):
             self.selected_constraint = obj
-            self.selected_body = None
-            self.selected_force = None
             bus.publish("scene.selection_changed", obj)
         else:
             self.selected_body = None
@@ -116,14 +117,19 @@ class Scene:
         return best_obj
 
     def delete_selected(self) -> None:
-        if self.selected_body is not None:
-            self.world.remove_body(self.selected_body)
+        if self.selected_constraint is not None:
+            self.world.remove_constraint(self.selected_constraint)
             self.select(None)
         elif self.selected_force is not None:
+            self.detach_force(self.selected_force)
             self.world.remove_force_object(self.selected_force)
-            self.select(None)
-        elif self.selected_constraint is not None:
-            self.world.remove_constraint(self.selected_constraint)
+            self.selected_force = None
+            bus.publish("scene.selection_changed", self.selected_body)
+        elif self.selected_body is not None:
+            for force in list(self.world.force_objects):
+                if force.attached_to is self.selected_body:
+                    self.detach_force(force)
+            self.world.remove_body(self.selected_body)
             self.select(None)
 
     def apply_random_impulse(self, body: Optional[RigidBody] = None) -> None:
@@ -149,8 +155,10 @@ class Scene:
     def move_selected_force_to(self, world_pos) -> None:
         if self.selected_force is None:
             return
+        self.move_force_to(self.selected_force, world_pos)
+
+    def move_force_to(self, force: ForceObject, world_pos) -> None:
         world_pos = vec3(*world_pos)
-        force = self.selected_force
         if force.attached_to is not None:
             body = force.attached_to
             delta = world_pos - body.position
@@ -159,17 +167,53 @@ class Scene:
         else:
             force.position = world_pos
 
+    def attach_selected_force_to_body(self) -> Optional[PhysicalSystem]:
+        if self.selected_force is None or self.selected_body is None:
+            return None
+        return self.attach_force_to_body(self.selected_force, self.selected_body)
+
+    def attach_force_to_body(self, force: ForceObject, body: RigidBody) -> PhysicalSystem:
+        delta = force.get_world_position() - body.position
+        force.local_offset = quat_rotate_vector(quat_conjugate(body.orientation), delta)
+        system = self._system_for_body(body)
+        system.add_force(force)
+        force.position = force.get_world_position()
+        bus.publish("scene.system_changed", system)
+        bus.publish("scene.selection_changed", body)
+        return system
+
+    def detach_force(self, force: ForceObject) -> None:
+        world_position = force.get_world_position()
+        force.attached_to = None
+        force.system_id = None
+        force.position = world_position
+        for system in self.physical_systems:
+            if force in system.force_components:
+                system.force_components.remove(force)
+        self.physical_systems = [s for s in self.physical_systems if s.body in self.world.bodies]
+
+    def _system_for_body(self, body: RigidBody) -> PhysicalSystem:
+        for system in self.physical_systems:
+            if system.body is body:
+                return system
+        system = PhysicalSystem(body=body)
+        self.physical_systems.append(system)
+        return system
+
     # ------------------------------------------------------------------
     # Bulk operations
     # ------------------------------------------------------------------
 
     def clear_all(self) -> None:
         self.select(None)
+        self.physical_systems.clear()
         self.world.clear(keep_static=True)
         bus.publish("scene.cleared", None)
 
     def reset_default_scene(self) -> None:
         self.select(None)
+        self.physical_systems.clear()
+        self.mode = SceneMode.CONSTRUCTION
         self.world.clear(keep_static=False)
         self.spawn("sphere", position=(-1.0, 4.0, 0.0))
         self.spawn("sphere", position=(1.2, 6.0, -0.5), color=(0.2, 0.6, 0.9))
@@ -192,10 +236,25 @@ class Scene:
     # Frame update
     # ------------------------------------------------------------------
 
+    def begin_simulation(self) -> None:
+        self.mode = SceneMode.SIMULATION
+        for body in self.world.bodies:
+            body.wake()
+        bus.publish("scene.mode_changed", self.mode)
+
+    def stop_simulation(self) -> None:
+        self.mode = SceneMode.CONSTRUCTION
+        for body in self.world.bodies:
+            body.velocity[:] = 0.0
+            body.angular_velocity[:] = 0.0
+            body.wake()
+        bus.publish("scene.mode_changed", self.mode)
+
     def update(self, dt: float) -> None:
         if self.config.day_length_seconds > 0:
             self.time_of_day = (self.time_of_day + dt * 24.0 / self.config.day_length_seconds) % 24.0
             self.config.time_of_day_hours = self.time_of_day
         for force in self.world.force_objects:
             force.update_position_from_attachment()
-        self.world.step(dt)
+        if self.mode is SceneMode.SIMULATION:
+            self.world.step(dt)

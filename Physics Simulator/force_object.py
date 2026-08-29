@@ -32,6 +32,7 @@ class ForceObject:
     force_type: ForceType = ForceType.CONSTANT
     attached_to: Optional["RigidBody"] = None
     local_offset: np.ndarray = field(default_factory=lambda: vec3(0, 0, 0))
+    system_id: Optional[int] = None
     is_active: bool = True
     is_one_shot: bool = False
     color: tuple = (1.0, 0.6, 0.0)
