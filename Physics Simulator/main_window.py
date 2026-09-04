@@ -24,6 +24,9 @@ class MainWindow(QMainWindow):
                 background: #20242a;
                 color: #eef2f6;
             }
+            QScrollArea {
+                border: none;
+            }
             QToolButton {
                 background: #30343b;
                 color: #eef2f6;
@@ -49,6 +52,7 @@ class MainWindow(QMainWindow):
             }
             QPushButton:hover { background: #465367; }
             QPushButton:checked { background: #2d6cdf; }
+            QPushButton:disabled { background: #2c3038; color: #6b7280; border-color: #3a3f47; }
             QSlider::groove:horizontal {
                 height: 6px;
                 background: #15181d;
@@ -65,12 +69,56 @@ class MainWindow(QMainWindow):
                 background: #15181d;
                 color: #eef2f6;
                 border: 1px solid #596372;
+                border-radius: 3px;
                 padding: 3px;
             }
-                background: #f3f4f6;
-                border: 1px solid #c7ccd4;
-                border-top: 0;
+            /* One shared rule for every collapsible-section box in either
+               panel (property groups on the right, and any QGroupBox used
+               elsewhere), instead of each box carrying its own duplicated
+               inline stylesheet. */
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #4a505a;
+                border-radius: 4px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background: #272c33;
             }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+                color: #eef2f6;
+            }
+            /* Both side panels are designed to scroll vertically rather
+               than clip - style the scrollbar to match instead of leaving
+               the default light-mode one, which looked out of place. */
+            QScrollBar:vertical {
+                background: #20242a;
+                width: 12px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #4a505a;
+                min-height: 24px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover { background: #5a6270; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+            QScrollBar:horizontal {
+                background: #20242a;
+                height: 12px;
+                margin: 0;
+            }
+            QScrollBar::handle:horizontal {
+                background: #4a505a;
+                min-width: 24px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal:hover { background: #5a6270; }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: none; }
         """)
 
         self.scene = scene
@@ -92,9 +140,9 @@ class MainWindow(QMainWindow):
         left_scroll = QScrollArea()
         left_scroll.setWidget(left_widget)
         left_scroll.setWidgetResizable(True)
-        left_scroll.setMinimumWidth(230)
-        left_scroll.setMaximumWidth(360)
-        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        left_scroll.setMinimumWidth(250)
+        left_scroll.setMaximumWidth(380)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         central.addWidget(left_scroll)
 
         # GL widget
@@ -113,13 +161,13 @@ class MainWindow(QMainWindow):
         right_scroll = QScrollArea()
         right_scroll.setWidget(right_widget)
         right_scroll.setWidgetResizable(True)
-        right_scroll.setMinimumWidth(250)
-        right_scroll.setMaximumWidth(380)
-        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        right_scroll.setMinimumWidth(300)
+        right_scroll.setMaximumWidth(420)
+        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         central.addWidget(right_scroll)
 
         # Set initial sizes
-        central.setSizes([300, 820, 320])
+        central.setSizes([280, 760, 360])
         central.setStretchFactor(0, 0)
         central.setStretchFactor(1, 1)
         central.setStretchFactor(2, 0)

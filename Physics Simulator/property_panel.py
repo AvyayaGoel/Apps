@@ -12,8 +12,8 @@ import numpy as np
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QGridLayout,
-    QGroupBox, QLabel, QPushButton, QVBoxLayout, QWidget, QScrollArea,
+    QAbstractSpinBox, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QGridLayout,
+    QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget, QScrollArea,
 )
 
 from body import RigidBody
@@ -44,10 +44,12 @@ class PropertyPanel(QWidget):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(12)
 
-        # Scroll area for content
+        # Scroll area for content. Only vertical scrolling is allowed - the
+        # layout below is built so content fits the panel's width instead
+        # of needing to scroll sideways to see clipped controls.
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         content_widget = QWidget()
@@ -63,26 +65,15 @@ class PropertyPanel(QWidget):
 
         # ---- Rigid body panel ----
         self.info_box = QGroupBox("Selected Object")
-        self.info_box.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #4a505a;
-                border-radius: 4px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
         info_layout = QVBoxLayout(self.info_box)
         info_layout.setSpacing(8)
 
-        # Basic info labels (read-only)
+        # Basic info labels (read-only) - one field per row so a wide
+        # formatted vector string ("(+12.34, +5.67, -8.90)") never has to
+        # compete with two other labels for space in the same row.
         basic_grid = QGridLayout()
         basic_grid.setSpacing(6)
+        basic_grid.setColumnStretch(1, 1)
 
         self.kind_label = QLabel("-")
         self.kind_label.setStyleSheet("color: #7fb0ff;")
@@ -90,12 +81,12 @@ class PropertyPanel(QWidget):
         basic_grid.addWidget(self.kind_label, 0, 1)
 
         self.position_label = QLabel("-")
-        basic_grid.addWidget(QLabel("Position:"), 0, 2)
-        basic_grid.addWidget(self.position_label, 0, 3)
+        basic_grid.addWidget(QLabel("Position:"), 1, 0)
+        basic_grid.addWidget(self.position_label, 1, 1)
 
         self.velocity_label = QLabel("-")
-        basic_grid.addWidget(QLabel("Velocity:"), 1, 0)
-        basic_grid.addWidget(self.velocity_label, 1, 1)
+        basic_grid.addWidget(QLabel("Velocity:"), 2, 0)
+        basic_grid.addWidget(self.velocity_label, 2, 1)
 
         info_layout.addLayout(basic_grid)
 
@@ -107,135 +98,65 @@ class PropertyPanel(QWidget):
         phys_grid = QGridLayout()
         phys_grid.setSpacing(6)
         phys_grid.setColumnStretch(1, 1)
-        phys_grid.setColumnStretch(3, 1)
 
-        self.mass_spin = QDoubleSpinBox()
-        self.mass_spin.setRange(0.05, 500.0)
-        self.mass_spin.setSingleStep(0.1)
-        self.mass_spin.setDecimals(3)
+        self.mass_spin = self._make_spin(0.05, 500.0, 0.1, 3)
         self.mass_spin.valueChanged.connect(self._on_mass_changed)
         phys_grid.addWidget(QLabel("Mass:"), 0, 0)
         phys_grid.addWidget(self.mass_spin, 0, 1)
 
-        self.density_spin = QDoubleSpinBox()
-        self.density_spin.setRange(0.01, 50.0)
-        self.density_spin.setSingleStep(0.1)
-        self.density_spin.setDecimals(3)
+        self.density_spin = self._make_spin(0.01, 50.0, 0.1, 3)
         self.density_spin.valueChanged.connect(self._on_density_changed)
-        phys_grid.addWidget(QLabel("Density:"), 0, 2)
-        phys_grid.addWidget(self.density_spin, 0, 3)
+        phys_grid.addWidget(QLabel("Density:"), 1, 0)
+        phys_grid.addWidget(self.density_spin, 1, 1)
 
-        self.scale_spin = QDoubleSpinBox()
-        self.scale_spin.setRange(0.1, 10.0)
-        self.scale_spin.setSingleStep(0.1)
-        self.scale_spin.setDecimals(3)
+        self.scale_spin = self._make_spin(0.1, 10.0, 0.1, 3)
         self.scale_spin.valueChanged.connect(self._on_scale_changed)
-        phys_grid.addWidget(QLabel("Scale:"), 1, 0)
-        phys_grid.addWidget(self.scale_spin, 1, 1)
+        phys_grid.addWidget(QLabel("Scale:"), 2, 0)
+        phys_grid.addWidget(self.scale_spin, 2, 1)
+
+        self.friction_spin = self._make_spin(0.0, 1.0, 0.05, 2)
+        self.friction_spin.valueChanged.connect(self._on_friction_changed)
+        phys_grid.addWidget(QLabel("Friction:"), 3, 0)
+        phys_grid.addWidget(self.friction_spin, 3, 1)
+
+        self.restitution_spin = self._make_spin(0.0, 1.0, 0.05, 2)
+        self.restitution_spin.valueChanged.connect(self._on_restitution_changed)
+        phys_grid.addWidget(QLabel("Restitution:"), 4, 0)
+        phys_grid.addWidget(self.restitution_spin, 4, 1)
 
         self.static_cb = QCheckBox("Static")
         self.static_cb.toggled.connect(self._on_static_toggled)
-        phys_grid.addWidget(self.static_cb, 1, 2, 1, 2)
-
-        self.friction_spin = QDoubleSpinBox()
-        self.friction_spin.setRange(0.0, 1.0)
-        self.friction_spin.setSingleStep(0.05)
-        self.friction_spin.setDecimals(2)
-        self.friction_spin.valueChanged.connect(self._on_friction_changed)
-        phys_grid.addWidget(QLabel("Friction:"), 2, 0)
-        phys_grid.addWidget(self.friction_spin, 2, 1)
-
-        self.restitution_spin = QDoubleSpinBox()
-        self.restitution_spin.setRange(0.0, 1.0)
-        self.restitution_spin.setSingleStep(0.05)
-        self.restitution_spin.setDecimals(2)
-        self.restitution_spin.valueChanged.connect(self._on_restitution_changed)
-        phys_grid.addWidget(QLabel("Restitution:"), 2, 2)
-        phys_grid.addWidget(self.restitution_spin, 2, 3)
+        phys_grid.addWidget(self.static_cb, 5, 0, 1, 2)
 
         info_layout.addLayout(phys_grid)
 
-        # Transform section
+        # Transform section - each XYZ-style field is a label above a row of
+        # three equal-width spinboxes (see _make_triplet_row) rather than
+        # cramming "label + 3 spinboxes" into one row. That used to overflow
+        # a 230-380px side panel outright (a QDoubleSpinBox's natural width
+        # alone, with its arrows, is ~90-100px - three of them plus a label
+        # needed ~350-400px, more than the panel had), which is what forced
+        # a permanent horizontal scrollbar.
         transform_group = QLabel("Transform")
         transform_group.setStyleSheet("font-weight: bold; color: #aaf;")
         info_layout.addWidget(transform_group)
 
-        transform_grid = QGridLayout()
-        transform_grid.setSpacing(6)
+        transform_layout = QVBoxLayout()
+        transform_layout.setSpacing(6)
 
-        # Position XYZ inline
-        transform_grid.addWidget(QLabel("Position:"), 0, 0)
-        self.pos_x = QDoubleSpinBox()
-        self.pos_x.setRange(-100, 100)
-        self.pos_x.setSingleStep(0.1)
-        self.pos_x.setDecimals(3)
-        self.pos_x.valueChanged.connect(self._on_position_changed)
-        transform_grid.addWidget(self.pos_x, 0, 1)
+        pos_row, self.pos_x, self.pos_y, self.pos_z = self._make_triplet_row(
+            "Position", -100, 100, 0.1, 3, callback=self._on_position_changed)
+        transform_layout.addWidget(pos_row)
 
-        self.pos_y = QDoubleSpinBox()
-        self.pos_y.setRange(-100, 100)
-        self.pos_y.setSingleStep(0.1)
-        self.pos_y.setDecimals(3)
-        self.pos_y.valueChanged.connect(self._on_position_changed)
-        transform_grid.addWidget(self.pos_y, 0, 2)
+        rot_row, self.yaw_spin, self.pitch_spin, self.roll_spin = self._make_triplet_row(
+            "Rotation (Y / P / R)", -180, 180, 1, 1, suffix="°", callback=self._on_rotation_changed)
+        transform_layout.addWidget(rot_row)
 
-        self.pos_z = QDoubleSpinBox()
-        self.pos_z.setRange(-100, 100)
-        self.pos_z.setSingleStep(0.1)
-        self.pos_z.setDecimals(3)
-        self.pos_z.valueChanged.connect(self._on_position_changed)
-        transform_grid.addWidget(self.pos_z, 0, 3)
+        vel_row, self.vel_x, self.vel_y, self.vel_z = self._make_triplet_row(
+            "Velocity", -100, 100, 0.1, 2, callback=self._on_velocity_changed)
+        transform_layout.addWidget(vel_row)
 
-        # Rotation YPR inline
-        transform_grid.addWidget(QLabel("Rotation:"), 1, 0)
-        self.yaw_spin = QDoubleSpinBox()
-        self.yaw_spin.setRange(-180, 180)
-        self.yaw_spin.setSingleStep(1)
-        self.yaw_spin.setSuffix("°")
-        self.yaw_spin.setDecimals(1)
-        self.yaw_spin.valueChanged.connect(self._on_rotation_changed)
-        transform_grid.addWidget(self.yaw_spin, 1, 1)
-
-        self.pitch_spin = QDoubleSpinBox()
-        self.pitch_spin.setRange(-180, 180)
-        self.pitch_spin.setSingleStep(1)
-        self.pitch_spin.setSuffix("°")
-        self.pitch_spin.setDecimals(1)
-        self.pitch_spin.valueChanged.connect(self._on_rotation_changed)
-        transform_grid.addWidget(self.pitch_spin, 1, 2)
-
-        self.roll_spin = QDoubleSpinBox()
-        self.roll_spin.setRange(-180, 180)
-        self.roll_spin.setSingleStep(1)
-        self.roll_spin.setSuffix("°")
-        self.roll_spin.setDecimals(1)
-        self.roll_spin.valueChanged.connect(self._on_rotation_changed)
-        transform_grid.addWidget(self.roll_spin, 1, 3)
-
-        # Velocity XYZ inline
-        transform_grid.addWidget(QLabel("Velocity:"), 2, 0)
-        self.vel_x = QDoubleSpinBox()
-        self.vel_x.setRange(-100, 100)
-        self.vel_x.setSingleStep(0.1)
-        self.vel_x.setDecimals(2)
-        self.vel_x.valueChanged.connect(self._on_velocity_changed)
-        transform_grid.addWidget(self.vel_x, 2, 1)
-
-        self.vel_y = QDoubleSpinBox()
-        self.vel_y.setRange(-100, 100)
-        self.vel_y.setSingleStep(0.1)
-        self.vel_y.setDecimals(2)
-        self.vel_y.valueChanged.connect(self._on_velocity_changed)
-        transform_grid.addWidget(self.vel_y, 2, 2)
-
-        self.vel_z = QDoubleSpinBox()
-        self.vel_z.setRange(-100, 100)
-        self.vel_z.setSingleStep(0.1)
-        self.vel_z.setDecimals(2)
-        self.vel_z.valueChanged.connect(self._on_velocity_changed)
-        transform_grid.addWidget(self.vel_z, 2, 3)
-
-        info_layout.addLayout(transform_grid)
+        info_layout.addLayout(transform_layout)
 
         # Color button
         self.color_button = QPushButton("Change Color")
@@ -246,99 +167,50 @@ class PropertyPanel(QWidget):
 
         # ---- Force object panel ----
         self.force_box = QGroupBox("Force Object")
-        self.force_box.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #4a505a;
-                border-radius: 4px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
         force_layout = QVBoxLayout(self.force_box)
         force_layout.setSpacing(8)
 
         force_grid = QGridLayout()
         force_grid.setSpacing(6)
+        force_grid.setColumnStretch(1, 1)
 
         self.force_pos_label = QLabel("-")
         force_grid.addWidget(QLabel("World Pos:"), 0, 0)
-        force_grid.addWidget(self.force_pos_label, 0, 1, 1, 3)
+        force_grid.addWidget(self.force_pos_label, 0, 1)
 
-        force_grid.addWidget(QLabel("Offset:"), 1, 0)
-        self.force_offset_x = QDoubleSpinBox()
-        self.force_offset_x.setRange(-10, 10)
-        self.force_offset_x.setSingleStep(0.05)
-        self.force_offset_x.setDecimals(3)
-        self.force_offset_x.valueChanged.connect(self._on_force_offset_changed)
-        force_grid.addWidget(self.force_offset_x, 1, 1)
-
-        self.force_offset_y = QDoubleSpinBox()
-        self.force_offset_y.setRange(-10, 10)
-        self.force_offset_y.setSingleStep(0.05)
-        self.force_offset_y.setDecimals(3)
-        self.force_offset_y.valueChanged.connect(self._on_force_offset_changed)
-        force_grid.addWidget(self.force_offset_y, 1, 2)
-
-        self.force_offset_z = QDoubleSpinBox()
-        self.force_offset_z.setRange(-10, 10)
-        self.force_offset_z.setSingleStep(0.05)
-        self.force_offset_z.setDecimals(3)
-        self.force_offset_z.valueChanged.connect(self._on_force_offset_changed)
-        force_grid.addWidget(self.force_offset_z, 1, 3)
-
-        force_grid.addWidget(QLabel("Magnitude:"), 2, 0)
-        self.force_mag_spin = QDoubleSpinBox()
-        self.force_mag_spin.setRange(0.0, 1000.0)
-        self.force_mag_spin.setSingleStep(0.5)
-        self.force_mag_spin.setDecimals(2)
+        self.force_mag_spin = self._make_spin(0.0, 1000.0, 0.5, 2)
         self.force_mag_spin.valueChanged.connect(self._on_force_mag_changed)
-        force_grid.addWidget(self.force_mag_spin, 2, 1, 1, 3)
+        force_grid.addWidget(QLabel("Magnitude:"), 1, 0)
+        force_grid.addWidget(self.force_mag_spin, 1, 1)
 
-        force_grid.addWidget(QLabel("Direction:"), 3, 0)
-        self.force_dir_x = QDoubleSpinBox()
-        self.force_dir_x.setRange(-1, 1)
-        self.force_dir_x.setSingleStep(0.05)
-        self.force_dir_x.setDecimals(3)
-        self.force_dir_x.valueChanged.connect(self._on_force_dir_changed)
-        force_grid.addWidget(self.force_dir_x, 3, 1)
-
-        self.force_dir_y = QDoubleSpinBox()
-        self.force_dir_y.setRange(-1, 1)
-        self.force_dir_y.setSingleStep(0.05)
-        self.force_dir_y.setDecimals(3)
-        self.force_dir_y.valueChanged.connect(self._on_force_dir_changed)
-        force_grid.addWidget(self.force_dir_y, 3, 2)
-
-        self.force_dir_z = QDoubleSpinBox()
-        self.force_dir_z.setRange(-1, 1)
-        self.force_dir_z.setSingleStep(0.05)
-        self.force_dir_z.setDecimals(3)
-        self.force_dir_z.valueChanged.connect(self._on_force_dir_changed)
-        force_grid.addWidget(self.force_dir_z, 3, 3)
-
-        force_grid.addWidget(QLabel("Type:"), 4, 0)
         self.force_type_cb = QComboBox()
         self.force_type_cb.addItems([t.value for t in ForceType])
         self.force_type_cb.currentTextChanged.connect(self._on_force_type_changed)
-        force_grid.addWidget(self.force_type_cb, 4, 1, 1, 3)
+        force_grid.addWidget(QLabel("Type:"), 2, 0)
+        force_grid.addWidget(self.force_type_cb, 2, 1)
 
         self.force_system_label = QLabel("-")
-        force_grid.addWidget(QLabel("System:"), 5, 0)
-        force_grid.addWidget(self.force_system_label, 5, 1, 1, 3)
+        force_grid.addWidget(QLabel("System:"), 3, 0)
+        force_grid.addWidget(self.force_system_label, 3, 1)
 
         self.force_active_cb = QCheckBox("Active")
         self.force_active_cb.toggled.connect(self._on_force_active_toggled)
-        force_grid.addWidget(self.force_active_cb, 6, 0, 1, 4)
+        force_grid.addWidget(self.force_active_cb, 4, 0, 1, 2)
 
         force_layout.addLayout(force_grid)
 
-        self.force_attach_btn = QPushButton("Attach Selected Force to Selected Body")
+        # Offset and Direction are XYZ triplets - same label-above-row
+        # treatment as Position/Rotation/Velocity above, for the same
+        # width reason.
+        offset_row, self.force_offset_x, self.force_offset_y, self.force_offset_z = self._make_triplet_row(
+            "Offset", -10, 10, 0.05, 3, callback=self._on_force_offset_changed)
+        force_layout.addWidget(offset_row)
+
+        dir_row, self.force_dir_x, self.force_dir_y, self.force_dir_z = self._make_triplet_row(
+            "Direction", -1, 1, 0.05, 3, callback=self._on_force_dir_changed)
+        force_layout.addWidget(dir_row)
+
+        self.force_attach_btn = QPushButton("Attach to Selected Body")
         self.force_attach_btn.clicked.connect(self._attach_force_to_selected)
         force_layout.addWidget(self.force_attach_btn)
 
@@ -350,65 +222,43 @@ class PropertyPanel(QWidget):
 
         # ---- Constraint panel ----
         self.constraint_box = QGroupBox("Constraint")
-        self.constraint_box.setStyleSheet("""
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #4a505a;
-                border-radius: 4px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
         con_layout = QVBoxLayout(self.constraint_box)
         con_layout.setSpacing(8)
 
         con_grid = QGridLayout()
         con_grid.setSpacing(6)
+        con_grid.setColumnStretch(1, 1)
 
         self.con_type_label = QLabel("-")
         con_grid.addWidget(QLabel("Type:"), 0, 0)
         con_grid.addWidget(self.con_type_label, 0, 1)
 
         self.con_body_a_label = QLabel("-")
-        con_grid.addWidget(QLabel("Body A:"), 0, 2)
-        con_grid.addWidget(self.con_body_a_label, 0, 3)
+        con_grid.addWidget(QLabel("Body A:"), 1, 0)
+        con_grid.addWidget(self.con_body_a_label, 1, 1)
 
         self.con_body_b_label = QLabel("-")
-        con_grid.addWidget(QLabel("Body B:"), 1, 0)
-        con_grid.addWidget(self.con_body_b_label, 1, 1)
+        con_grid.addWidget(QLabel("Body B:"), 2, 0)
+        con_grid.addWidget(self.con_body_b_label, 2, 1)
 
-        self.con_stiffness = QDoubleSpinBox()
-        self.con_stiffness.setRange(0.0, 500.0)
-        self.con_stiffness.setSingleStep(1.0)
-        self.con_stiffness.setDecimals(1)
+        self.con_stiffness = self._make_spin(0.0, 500.0, 1.0, 1)
         self.con_stiffness.valueChanged.connect(self._on_constraint_stiffness)
-        con_grid.addWidget(QLabel("Stiffness:"), 1, 2)
-        con_grid.addWidget(self.con_stiffness, 1, 3)
+        con_grid.addWidget(QLabel("Stiffness:"), 3, 0)
+        con_grid.addWidget(self.con_stiffness, 3, 1)
 
-        self.con_damping = QDoubleSpinBox()
-        self.con_damping.setRange(0.0, 10.0)
-        self.con_damping.setSingleStep(0.1)
-        self.con_damping.setDecimals(2)
+        self.con_damping = self._make_spin(0.0, 10.0, 0.1, 2)
         self.con_damping.valueChanged.connect(self._on_constraint_damping)
-        con_grid.addWidget(QLabel("Damping:"), 2, 0)
-        con_grid.addWidget(self.con_damping, 2, 1)
+        con_grid.addWidget(QLabel("Damping:"), 4, 0)
+        con_grid.addWidget(self.con_damping, 4, 1)
 
-        self.con_rest_length = QDoubleSpinBox()
-        self.con_rest_length.setRange(0.01, 100.0)
-        self.con_rest_length.setSingleStep(0.1)
-        self.con_rest_length.setDecimals(2)
+        self.con_rest_length = self._make_spin(0.01, 100.0, 0.1, 2)
         self.con_rest_length.valueChanged.connect(self._on_constraint_rest_length)
-        con_grid.addWidget(QLabel("Rest Length:"), 2, 2)
-        con_grid.addWidget(self.con_rest_length, 2, 3)
+        con_grid.addWidget(QLabel("Rest Length:"), 5, 0)
+        con_grid.addWidget(self.con_rest_length, 5, 1)
 
         self.con_enabled_cb = QCheckBox("Enabled")
         self.con_enabled_cb.toggled.connect(self._on_constraint_enabled)
-        con_grid.addWidget(self.con_enabled_cb, 3, 0, 1, 4)
+        con_grid.addWidget(self.con_enabled_cb, 6, 0, 1, 2)
 
         con_layout.addLayout(con_grid)
 
@@ -422,11 +272,13 @@ class PropertyPanel(QWidget):
         action_layout = QVBoxLayout()
         action_layout.setSpacing(6)
 
-        self.kick_button = QPushButton("Kick / Throw (Space)")
+        self.kick_button = QPushButton("Kick / Throw")
+        self.kick_button.setToolTip("Apply a random impulse (Space)")
         self.kick_button.clicked.connect(lambda: self.scene.apply_random_impulse())
         action_layout.addWidget(self.kick_button)
 
-        self.delete_button = QPushButton("Delete Selected (Del)")
+        self.delete_button = QPushButton("Delete Selected")
+        self.delete_button.setToolTip("Delete the selected object (Del)")
         self.delete_button.clicked.connect(self.scene.delete_selected)
         action_layout.addWidget(self.delete_button)
 
@@ -445,6 +297,53 @@ class PropertyPanel(QWidget):
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._refresh_live_fields)
         self._refresh_timer.start(100)
+
+    # ------------------------------------------------------------------
+    # Layout helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _make_spin(minimum, maximum, step, decimals, suffix="") -> QDoubleSpinBox:
+        """A QDoubleSpinBox with its up/down arrow buttons hidden. Those
+        arrows cost ~16-20px of width per spinbox for a feature the keyboard
+        and scroll wheel already cover, and reclaiming that width is what
+        makes 2-3 spinboxes actually fit side by side in a narrow panel
+        instead of needing a horizontal scrollbar."""
+        spin = QDoubleSpinBox()
+        spin.setRange(minimum, maximum)
+        spin.setSingleStep(step)
+        spin.setDecimals(decimals)
+        if suffix:
+            spin.setSuffix(suffix)
+        spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        spin.setMinimumWidth(48)
+        return spin
+
+    def _make_triplet_row(self, label_text, minimum, maximum, step, decimals, suffix="", callback=None):
+        """Label on its own line, with a row of three equal-width spinboxes
+        below it - used for every XYZ / vector-style field (position,
+        rotation, velocity, force offset, force direction). Putting the
+        label above instead of to the left of the three spinboxes is what
+        keeps this fitting the panel's width: at the panel's minimum width
+        there isn't room for a label plus three spinboxes on one line."""
+        container = QWidget()
+        v = QVBoxLayout(container)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(2)
+        label = QLabel(label_text)
+        label.setStyleSheet("color: #b7bfca;")
+        v.addWidget(label)
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        spins = []
+        for _ in range(3):
+            spin = self._make_spin(minimum, maximum, step, decimals, suffix)
+            if callback is not None:
+                spin.valueChanged.connect(callback)
+            row.addWidget(spin, 1)
+            spins.append(spin)
+        v.addLayout(row)
+        return container, spins[0], spins[1], spins[2]
 
     # ------------------------------------------------------------------
     # Selection

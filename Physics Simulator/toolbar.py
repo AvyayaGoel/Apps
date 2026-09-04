@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
+    QGridLayout, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 )
 
 from config import SimulationConfig
@@ -40,39 +40,35 @@ class ToolbarPanel(QWidget):
 
     def _build_spawn_group(self) -> QWidget:
         box = QWidget()
-        grid = QVBoxLayout(box)
+        grid = QGridLayout(box)
         grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(4)
 
-        # Row 1: basic shapes
-        row1 = QHBoxLayout()
-        for kind in ("sphere", "cube", "cylinder", "cone", "torus", "pyramid"):
+        # Two buttons per row rather than one long horizontal row per
+        # category - a row of 6-7 buttons doesn't fit in a 230-380px wide
+        # panel at all (it needed ~500-600px), which is what was forcing
+        # this whole area into a permanent, ugly horizontal scroll.
+        columns = 2
+        shapes = ("sphere", "cube", "cylinder", "cone", "torus", "pyramid",
+                  "ball", "cup", "table", "car", "ramp", "plank", "box",
+                  "wall", "floor_tile")
+        row = col = 0
+        for kind in shapes:
             btn = QPushButton(kind.replace("_", " ").title())
             btn.clicked.connect(lambda checked=False, k=kind: self.scene.spawn(k))
-            row1.addWidget(btn)
-        grid.addLayout(row1)
+            grid.addWidget(btn, row, col)
+            col += 1
+            if col >= columns:
+                col = 0
+                row += 1
+        for c in range(columns):
+            grid.setColumnStretch(c, 1)
 
-        # Row 2: everyday items
-        row2 = QHBoxLayout()
-        for kind in ("ball", "cup", "table", "car", "ramp", "plank", "box"):
-            btn = QPushButton(kind.replace("_", " ").title())
-            btn.clicked.connect(lambda checked=False, k=kind: self.scene.spawn(k))
-            row2.addWidget(btn)
-        grid.addLayout(row2)
-
-        # Row 3: walls and large shapes
-        row3 = QHBoxLayout()
-        for kind in ("wall", "floor_tile"):
-            btn = QPushButton(kind.replace("_", " ").title())
-            btn.clicked.connect(lambda checked=False, k=kind: self.scene.spawn(k))
-            row3.addWidget(btn)
-        grid.addLayout(row3)
-
-        # Row 4: force object
-        row4 = QHBoxLayout()
         force_btn = QPushButton("Force Arrow")
         force_btn.clicked.connect(lambda: self.scene.spawn_force_object())
-        row4.addWidget(force_btn)
-        grid.addLayout(row4)
+        if col != 0:
+            row += 1
+        grid.addWidget(force_btn, row, 0, 1, columns)
 
         return box
 
@@ -82,33 +78,37 @@ class ToolbarPanel(QWidget):
 
     def _build_scene_controls_group(self) -> QWidget:
         box = QWidget()
-        layout = QHBoxLayout(box)
-        layout.setContentsMargins(0, 0, 0, 0)
+        grid = QGridLayout(box)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(4)
 
         clear_btn = QPushButton("Clear All")
         clear_btn.clicked.connect(self.scene.clear_all)
-        layout.addWidget(clear_btn)
 
         reset_btn = QPushButton("Reset Scene")
         reset_btn.clicked.connect(self.scene.reset_default_scene)
-        layout.addWidget(reset_btn)
 
         place_btn = QPushButton("Place Mode")
         place_btn.setCheckable(True)
         place_btn.toggled.connect(lambda checked: bus.publish("input.set_place_mode", checked))
-        layout.addWidget(place_btn)
 
-        attach_btn = QPushButton("Attach Force → Body")
+        attach_btn = QPushButton("Attach Force")
+        attach_btn.setToolTip("Attach the selected force object to the selected body")
         attach_btn.clicked.connect(self.scene.attach_selected_force_to_body)
-        layout.addWidget(attach_btn)
 
         simulate_btn = QPushButton("Simulate")
         simulate_btn.clicked.connect(self.scene.begin_simulation)
-        layout.addWidget(simulate_btn)
 
-        stop_btn = QPushButton("Stop / Construct")
+        stop_btn = QPushButton("Stop")
+        stop_btn.setToolTip("Stop simulation and return to construction mode")
         stop_btn.clicked.connect(self.scene.stop_simulation)
-        layout.addWidget(stop_btn)
+
+        columns = 2
+        for idx, btn in enumerate((clear_btn, reset_btn, place_btn, attach_btn, simulate_btn, stop_btn)):
+            r, c = divmod(idx, columns)
+            grid.addWidget(btn, r, c)
+        for c in range(columns):
+            grid.setColumnStretch(c, 1)
 
         return box
 
@@ -192,15 +192,18 @@ class ToolbarPanel(QWidget):
         bus.subscribe("scene.secondary_selection_changed", self._on_secondary_selection_changed)
 
         # Create buttons for each constraint type
-        spring_btn = QPushButton("Add Spring (selected bodies)")
+        spring_btn = QPushButton("Add Spring")
+        spring_btn.setToolTip("Connect the selected body and Body B with a spring")
         spring_btn.clicked.connect(self._add_spring)
         layout.addWidget(spring_btn)
 
-        rope_btn = QPushButton("Add Rope (selected bodies)")
+        rope_btn = QPushButton("Add Rope")
+        rope_btn.setToolTip("Connect the selected body and Body B with a rope")
         rope_btn.clicked.connect(self._add_rope)
         layout.addWidget(rope_btn)
 
-        hinge_btn = QPushButton("Add Hinge (selected bodies)")
+        hinge_btn = QPushButton("Add Hinge")
+        hinge_btn.setToolTip("Connect the selected body and Body B with a hinge")
         hinge_btn.clicked.connect(self._add_hinge)
         layout.addWidget(hinge_btn)
 
