@@ -25,7 +25,12 @@ SHAPE_COMPOUND = "compound"
 _id_counter = itertools.count(1)
 
 
-@dataclass
+# eq=False: every call site treats bodies by identity (`is`, `in` a list of
+# distinct bodies). The default dataclass __eq__ compares numpy-array fields
+# (position, velocity, ...) elementwise, which raises "the truth value of an
+# array... is ambiguous" the moment two *different* bodies are compared -
+# exactly what `body in world.bodies` does for every non-matching element.
+@dataclass(eq=False)
 class RigidBody:
     shape: str
     shape_params: dict

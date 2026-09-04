@@ -34,6 +34,7 @@ class Scene:
         self.time_of_day = config.time_of_day_hours
 
         bus.subscribe("input.set_time_of_day", self._on_set_time_of_day)
+        bus.subscribe("physics.body_removed", self._on_body_removed)
 
     # ------------------------------------------------------------------
     # Spawning (added wall, floor_tile, pyramid)
@@ -94,6 +95,7 @@ class Scene:
 
     def set_secondary_selection(self, body: Optional[RigidBody]) -> None:
         self.secondary_selected_body = body
+        bus.publish("scene.secondary_selection_changed", body)
 
     def pick(self, ray_origin, ray_dir) -> Optional[object]:
         best_obj, best_t = None, float("inf")
@@ -193,6 +195,17 @@ class Scene:
                 system.force_components.remove(force)
         self.physical_systems = [s for s in self.physical_systems if s.body in self.world.bodies]
 
+    def register_constraint(self, constraint) -> None:
+        """Add a constraint to the world *and* to the physical system(s) of
+        the bodies it connects, so Body + Force + Constraint compose into
+        one system instead of constraints being tracked separately from
+        everything else attached to a body (section 5)."""
+        self.world.add_constraint(constraint)
+        self._system_for_body(constraint.body_a).add_constraint(constraint)
+        if constraint.body_b is not None:
+            self._system_for_body(constraint.body_b).add_constraint(constraint)
+        bus.publish("scene.system_changed", None)
+
     def _system_for_body(self, body: RigidBody) -> PhysicalSystem:
         for system in self.physical_systems:
             if system.body is body:
@@ -232,6 +245,35 @@ class Scene:
         self.time_of_day = hours % 24.0
         self.config.time_of_day_hours = self.time_of_day
         bus.publish("scene.time_of_day_changed", self.time_of_day)
+
+    def _on_body_removed(self, body: RigidBody) -> None:
+        """Keep every other piece of state consistent when a body leaves
+        the world, through *any* removal path - explicit delete, falling
+        past the kill plane, a future removal path, etc. Nothing should
+        keep pointing at a body that is no longer simulated or rendered.
+        """
+        if self.secondary_selected_body is body:
+            self.secondary_selected_body = None
+            bus.publish("scene.secondary_selection_changed", None)
+        if self.selected_body is body:
+            self.select(None)
+
+        # Detach forces still targeting this body rather than leaving a
+        # "ghost" force arrow that renders forever at its last position.
+        for force in list(self.world.force_objects):
+            if force.attached_to is body:
+                self.detach_force(force)
+
+        # Drop constraints referencing this body - solving them against a
+        # body no longer in world.bodies would silently keep applying real
+        # impulses to whatever live body is still attached to it.
+        for con in list(self.world.constraints):
+            if con.body_a is body or con.body_b is body:
+                self.world.remove_constraint(con)
+                for system in self.physical_systems:
+                    system.remove_constraint(con)
+
+        self.physical_systems = [s for s in self.physical_systems if s.body is not body]
 
     # ------------------------------------------------------------------
     # Frame update

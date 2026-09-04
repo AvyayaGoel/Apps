@@ -157,6 +157,45 @@ class Renderer:
                 if self.gizmo and scene.selected_body:
                     body = scene.selected_body
                     self.gizmo.draw(body)
+            elif body is scene.secondary_selected_body:
+                self._draw_secondary_selection_highlight(body.position, body.bounding_radius())
+
+    @staticmethod
+    def _draw_secondary_selection_highlight(position: np.ndarray, radius: float) -> None:
+        """Marks the 'Body B' pick for constraint creation (section 10:
+        attachment/detachment should be visible, not just implied)."""
+        glPushAttrib(GL_ENABLE_BIT | GL_LIGHTING_BIT | GL_LINE_BIT | GL_CURRENT_BIT)
+        glDisable(GL_LIGHTING)
+        glDisable(GL_DEPTH_TEST)
+        glColor3f(0.7, 0.3, 1.0)
+        glLineWidth(2.0)
+        s = max(0.4, radius * 1.1)
+        glPushMatrix()
+        glTranslatef(*position)
+        glBegin(GL_LINE_LOOP)
+        glVertex3f(-s, -s, -s)
+        glVertex3f(s, -s, -s)
+        glVertex3f(s, s, -s)
+        glVertex3f(-s, s, -s)
+        glEnd()
+        glBegin(GL_LINE_LOOP)
+        glVertex3f(-s, -s, s)
+        glVertex3f(s, -s, s)
+        glVertex3f(s, s, s)
+        glVertex3f(-s, s, s)
+        glEnd()
+        glBegin(GL_LINES)
+        glVertex3f(-s, -s, -s)
+        glVertex3f(-s, -s, s)
+        glVertex3f(s, -s, -s)
+        glVertex3f(s, -s, s)
+        glVertex3f(s, s, -s)
+        glVertex3f(s, s, s)
+        glVertex3f(-s, s, -s)
+        glVertex3f(-s, s, s)
+        glEnd()
+        glPopMatrix()
+        glPopAttrib()
 
     @staticmethod
     def _draw_force_selection_highlight(position: np.ndarray) -> None:
@@ -169,25 +208,25 @@ class Renderer:
         glPushMatrix()
         glTranslatef(*position)
         glBegin(GL_LINE_LOOP)
-        glVertex3f(-s, -s, -s);
-        glVertex3f(s, -s, -s);
-        glVertex3f(s, s, -s);
+        glVertex3f(-s, -s, -s)
+        glVertex3f(s, -s, -s)
+        glVertex3f(s, s, -s)
         glVertex3f(-s, s, -s)
         glEnd()
         glBegin(GL_LINE_LOOP)
-        glVertex3f(-s, -s, s);
-        glVertex3f(s, -s, s);
-        glVertex3f(s, s, s);
+        glVertex3f(-s, -s, s)
+        glVertex3f(s, -s, s)
+        glVertex3f(s, s, s)
         glVertex3f(-s, s, s)
         glEnd()
         glBegin(GL_LINES)
-        glVertex3f(-s, -s, -s);
+        glVertex3f(-s, -s, -s)
         glVertex3f(-s, -s, s)
-        glVertex3f(s, -s, -s);
+        glVertex3f(s, -s, -s)
         glVertex3f(s, -s, s)
-        glVertex3f(s, s, -s);
+        glVertex3f(s, s, -s)
         glVertex3f(s, s, s)
-        glVertex3f(-s, s, -s);
+        glVertex3f(-s, s, -s)
         glVertex3f(-s, s, s)
         glEnd()
         glPopMatrix()

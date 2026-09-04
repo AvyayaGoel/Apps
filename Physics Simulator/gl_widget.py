@@ -58,6 +58,8 @@ class SandboxGLWidget(QOpenGLWidget):
         self._dragging_body: Optional[RigidBody] = None
         self._dragging_force: Optional[ForceObject] = None
         self._drag_plane_y = 0.0
+        self._press_pos = None
+        self._pending_deselect = False
 
         self._placement_mode = False
         self._placement_kind = "sphere"
@@ -157,14 +159,23 @@ class SandboxGLWidget(QOpenGLWidget):
                 if isinstance(hit, RigidBody):
                     self.scene.set_secondary_selection(hit)
                     return
-            self.scene.select(hit)
-            if hit is not None and isinstance(hit, RigidBody) and not hit.is_static:
-                self._dragging_body = hit
-                self._drag_plane_y = hit.position[1]
-            elif hit is not None and isinstance(hit, ForceObject):
-                self._dragging_force = hit
-                self._drag_plane_y = hit.get_world_position()[1]
+            self._press_pos = pos
+            if hit is not None:
+                self._pending_deselect = False
+                self.scene.select(hit)
+                if isinstance(hit, RigidBody) and not hit.is_static:
+                    self._dragging_body = hit
+                    self._drag_plane_y = hit.position[1]
+                elif isinstance(hit, ForceObject):
+                    self._dragging_force = hit
+                    self._drag_plane_y = hit.get_world_position()[1]
             else:
+                # Don't clear the current selection here - a click that
+                # misses everything is also how every orbit drag starts.
+                # Only actually deselect in mouseReleaseEvent, and only if
+                # this turns out to have been a plain click rather than a
+                # drag (see _pending_deselect handling there).
+                self._pending_deselect = True
                 if not self._free_camera:
                     self._orbiting = True
         elif event.button() == Qt.MouseButton.MiddleButton:
@@ -227,11 +238,20 @@ class SandboxGLWidget(QOpenGLWidget):
                 self._dragging_body.wake()
             self._dragging_body = None
             self._dragging_force = None
+            if self._pending_deselect:
+                moved = 0.0
+                if self._press_pos is not None:
+                    delta = event.position() - self._press_pos
+                    moved = (delta.x() ** 2 + delta.y() ** 2) ** 0.5
+                if moved < 4.0:
+                    self.scene.select(None)
+                self._pending_deselect = False
         elif event.button() == Qt.MouseButton.MiddleButton:
             self._panning = False
         elif event.button() == Qt.MouseButton.RightButton:
             self._orbiting = False
         self._last_mouse_pos = None
+        self._press_pos = None
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         steps = event.angleDelta().y() / 120.0

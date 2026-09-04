@@ -666,14 +666,24 @@ class PropertyPanel(QWidget):
         """Handle transform updates from gizmo or other sources."""
         if body is not self._current:
             return
-        # Update position spins without triggering recursive updates
+        # Update position spins without triggering recursive updates.
+        # blockSignals is what actually prevents _on_position_changed from
+        # firing and writing a rounded value back into the model on every
+        # gizmo-drag frame; the _block_updates flag alone does nothing
+        # unless callbacks check it, and none of them did.
         self._block_updates = True
+        self.pos_x.blockSignals(True)
+        self.pos_y.blockSignals(True)
+        self.pos_z.blockSignals(True)
         try:
             self.pos_x.setValue(body.position[0])
             self.pos_y.setValue(body.position[1])
             self.pos_z.setValue(body.position[2])
             self._update_rotation_spins(body.orientation)
         finally:
+            self.pos_x.blockSignals(False)
+            self.pos_y.blockSignals(False)
+            self.pos_z.blockSignals(False)
             self._block_updates = False
 
     # ------------------------------------------------------------------

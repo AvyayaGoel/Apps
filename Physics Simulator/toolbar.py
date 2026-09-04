@@ -186,6 +186,11 @@ class ToolbarPanel(QWidget):
         layout = QVBoxLayout(box)
         layout.setContentsMargins(0, 0, 0, 0)
 
+        self.secondary_label = QLabel("Body B: none (Shift+click a body to set)")
+        self.secondary_label.setStyleSheet("color: #aaa;")
+        layout.addWidget(self.secondary_label)
+        bus.subscribe("scene.secondary_selection_changed", self._on_secondary_selection_changed)
+
         # Create buttons for each constraint type
         spring_btn = QPushButton("Add Spring (selected bodies)")
         spring_btn.clicked.connect(self._add_spring)
@@ -201,6 +206,12 @@ class ToolbarPanel(QWidget):
 
         return box
 
+    def _on_secondary_selection_changed(self, body) -> None:
+        if body is None:
+            self.secondary_label.setText("Body B: none (Shift+click a body to set)")
+        else:
+            self.secondary_label.setText(f"Body B: {body.object_kind} #{body.id}")
+
     def _add_spring(self):
         body_a = self.scene.selected_body
         body_b = self.scene.secondary_selected_body
@@ -211,7 +222,8 @@ class ToolbarPanel(QWidget):
         spring = SpringConstraint(body_a, body_b,
                                   anchor_a=np.zeros(3), anchor_b=np.zeros(3),
                                   rest_length=1.0, k=50.0)
-        self.scene.world.add_constraint(spring)
+        self.scene.register_constraint(spring)
+        self.scene.set_secondary_selection(None)
 
     def _add_rope(self):
         body_a = self.scene.selected_body
@@ -221,7 +233,8 @@ class ToolbarPanel(QWidget):
         rope = RopeConstraint(body_a, body_b,
                               anchor_a=np.zeros(3), anchor_b=np.zeros(3),
                               max_length=1.5)
-        self.scene.world.add_constraint(rope)
+        self.scene.register_constraint(rope)
+        self.scene.set_secondary_selection(None)
 
     def _add_hinge(self):
         body_a = self.scene.selected_body
@@ -231,7 +244,8 @@ class ToolbarPanel(QWidget):
         hinge = HingeConstraint(body_a, body_b,
                                 anchor_a=np.zeros(3), anchor_b=np.zeros(3),
                                 axis=np.array([0.0, 1.0, 0.0]))
-        self.scene.world.add_constraint(hinge)
+        self.scene.register_constraint(hinge)
+        self.scene.set_secondary_selection(None)
 
     # ------------------------------------------------------------------
     # Event handlers

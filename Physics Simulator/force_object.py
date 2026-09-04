@@ -25,7 +25,9 @@ class ForceType(Enum):
     VARIABLE = "variable"  # Future: user-controlled magnitude
 
 
-@dataclass
+# eq=False: see body.py - identity semantics throughout, and numpy-array
+# fields (position, direction, local_offset) break the auto-generated __eq__.
+@dataclass(eq=False)
 class ForceObject:
     position: np.ndarray = field(default_factory=lambda: vec3(0, 2, 0))
     direction: np.ndarray = field(default_factory=lambda: vec3(0, 1, 0))

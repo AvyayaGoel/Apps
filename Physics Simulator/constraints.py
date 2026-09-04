@@ -15,7 +15,10 @@ from body import RigidBody
 from math_utils import vec3, normalize, quat_rotate_vector
 
 
-@dataclass
+# eq=False on this class and every subclass below: see body.py - identity
+# semantics throughout (world.constraints membership checks, etc.), and
+# numpy-array anchor/axis fields break the auto-generated __eq__.
+@dataclass(eq=False)
 class Constraint:
     body_a: RigidBody
     body_b: Optional[RigidBody]  # None means world (static)
@@ -30,7 +33,7 @@ class Constraint:
         pass
 
 
-@dataclass
+@dataclass(eq=False)
 class SpringConstraint(Constraint):
     """Linear spring connecting two anchor points."""
     rest_length: float = 1.0
@@ -65,7 +68,7 @@ class SpringConstraint(Constraint):
             self.body_b.apply_impulse(-impulse, pos_b)
 
 
-@dataclass
+@dataclass(eq=False)
 class RopeConstraint(Constraint):
     """Inextensible rope: only pulls, does not push."""
     max_length: float = 1.0
@@ -108,7 +111,7 @@ class RopeConstraint(Constraint):
             self.body_b.apply_impulse(-impulse, pos_b)
 
 
-@dataclass
+@dataclass(eq=False)
 class HingeConstraint(Constraint):
     """Revolute joint: restricts relative translation along a fixed axis."""
     axis: np.ndarray = field(default_factory=lambda: vec3(0, 1, 0))  # world-space axis of rotation

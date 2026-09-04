@@ -150,14 +150,20 @@ class TransformGizmo:
 
         for i in range(3):
             axis = self._axis_world(orientation, i)
-            tip = position + axis * (radius + arrow_length)
+            # Use the same shape-aware surface offset draw() uses for the
+            # arrow start, so the clickable tip actually sits where the
+            # arrow is visibly drawn (this used to use the generic bounding
+            # radius here, which only matches for spheres - for a box the
+            # visible tip and the pick point could be ~0.3 units apart).
+            start_offset = self._arrow_start_offset(body, i)
+            tip = position + axis * (start_offset + arrow_length)
             t = ray_sphere_intersect(ray_origin, ray_dir, tip, self.hit_radius * max(1.0, body.scale))
             if t is not None and t < best_t:
                 best_t = t
                 best_handle = ("translate", i)
                 best_hit = ray_origin + ray_dir * t
 
-            ring_hit = self._pick_ring(ray_origin, ray_dir, position, axis, radius * self.ring_radius)
+            ring_hit = self._pick_ring(ray_origin, ray_dir, position, axis, radius * self.ring_radius_factor)
             if ring_hit is not None:
                 t_ring, hit = ring_hit
                 if t_ring < best_t:
@@ -229,11 +235,16 @@ class TransformGizmo:
         cos_angle = float(np.clip(np.dot(self.rotation_start_vector, current), -1.0, 1.0))
         angle = math.atan2(sin_angle, cos_angle)
 
-        # Fix rotation direction: invert angle if camera is looking opposite to rotation axis
-        # This ensures dragging feels intuitive from the user's viewpoint
-        if camera_forward is not None:
-            if np.dot(self.drag_axis, camera_forward) < 0:
-                angle = -angle
+        # NOTE: no camera-based sign flip here. The angle above already comes
+        # from real world-space ray/plane hit points (the same technique
+        # every major 3D editor uses for single-axis ring rotation), which
+        # makes it camera-viewpoint-invariant by construction: dragging the
+        # cursor around the ring always sweeps by the angle the cursor
+        # actually moved through, regardless of where the camera is. A
+        # previous version flipped the sign based on camera_forward, which
+        # made the *same* physical drag produce opposite rotations depending
+        # on which side of the axis the camera was viewing from - confirmed
+        # by direct test, not just visually "looked reversed" from one angle.
 
         delta = quat_from_axis_angle(self.drag_axis, angle)
         new_orientation = quat_multiply(delta, self.rotation_start_orientation)
