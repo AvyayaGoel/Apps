@@ -271,14 +271,17 @@ def resolve_pair(a: RigidBody, b: RigidBody) -> None:
     if shape_a == SHAPE_BOX and shape_b == SHAPE_BOX:
         contact = _box_box_contact(a, b)
     elif shape_a == SHAPE_SPHERE and shape_b == SHAPE_BOX:
+        # _sphere_box_contact returns a normal pointing box->sphere, i.e.
+        # b->a here - but _resolve_contact needs a->b (proven by the
+        # sphere-sphere and box-box cases), so this needs negating.
         contact = _sphere_box_contact(a, b)
-    elif shape_a == SHAPE_BOX and shape_b == SHAPE_SPHERE:
-        # Swap to get sphere-box
-        contact = _sphere_box_contact(b, a)
         if contact:
-            # Reverse normal
             normal, pen, pt = contact
             contact = (-normal, pen, pt)
+    elif shape_a == SHAPE_BOX and shape_b == SHAPE_SPHERE:
+        # Swap args so _sphere_box_contact sees (sphere=b, box=a); it then
+        # returns box(a)->sphere(b), which already IS a->b - no negation.
+        contact = _sphere_box_contact(b, a)
     elif shape_a == SHAPE_SPHERE and shape_b == SHAPE_SPHERE:
         contact = _sphere_sphere_contact(a, b)
     else:
@@ -298,9 +301,13 @@ def _sphere_sphere_contact(a: RigidBody, b: RigidBody):
     dist = float(np.linalg.norm(delta))
     ra, rb = a.bounding_radius(), b.bounding_radius()
     min_dist = ra + rb
-    if dist >= min_dist or dist < 1e-9:
+    if dist >= min_dist:
         return None
-    normal = delta / dist
-    penetration = min_dist - dist
+    if dist < 1e-6:
+        normal = np.array([0.0, 1.0, 0.0])
+        penetration = min_dist
+    else:
+        normal = delta / dist
+        penetration = min_dist - dist
     contact_point = (a.position + b.position) * 0.5
     return normal, penetration, contact_point

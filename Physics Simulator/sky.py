@@ -54,6 +54,7 @@ class SkyRenderer:
     def __init__(self, config: SimulationConfig) -> None:
         self.config = config
         self._display_list = None
+        self._display_list_hours = None
 
     @staticmethod
     def _daylight_factor(hours: float) -> float:
@@ -88,14 +89,38 @@ class SkyRenderer:
         sun_strength = 0.15 + 0.85 * day_t
         return ambient, sun_strength
 
+    # Below this much simulated-hour change, the gradient is visually
+    # indistinguishable, so there's no point rebuilding ~800 vertex/color
+    # calls (with trig) for it every single frame - only the sun/moon
+    # discs, which are two cheap flat quads, still redraw every frame.
+    _REBUILD_THRESHOLD_HOURS = 0.02
+
     def draw(self, hours: float, radius: float = 200.0) -> None:
-        zenith, horizon = self.sky_colors(hours)
+        if (self._display_list is None or self._display_list_hours is None or
+                abs(hours - self._display_list_hours) >= self._REBUILD_THRESHOLD_HOURS):
+            if self._display_list is None:
+                self._display_list = glGenLists(1)
+            glNewList(self._display_list, GL_COMPILE)
+            self._build_dome(hours, radius)
+            glEndList()
+            self._display_list_hours = hours
 
         glPushAttrib(GL_ENABLE_BIT | GL_LIGHTING_BIT)
         glDisable(GL_LIGHTING)
         glDisable(GL_DEPTH_TEST)
         glDisable(GL_FOG)
 
+        glCallList(self._display_list)
+
+        self._draw_celestial_body(sun_direction(hours), radius * 0.92, (1.0, 0.95, 0.75), size=9.0, glow=True)
+        day_t = self._daylight_factor(hours)
+        if day_t < 0.85:
+            self._draw_celestial_body(moon_direction(hours), radius * 0.92, (0.85, 0.88, 0.95), size=6.0, glow=False)
+
+        glPopAttrib()
+
+    def _build_dome(self, hours: float, radius: float) -> None:
+        zenith, horizon = self.sky_colors(hours)
         rings, segments = 12, 32
         for i in range(rings):
             t0 = i / rings
@@ -114,13 +139,6 @@ class SkyRenderer:
                     glColor3f(*col)
                     glVertex3f(x, y, z)
             glEnd()
-
-        self._draw_celestial_body(sun_direction(hours), radius * 0.92, (1.0, 0.95, 0.75), size=9.0, glow=True)
-        day_t = self._daylight_factor(hours)
-        if day_t < 0.85:
-            self._draw_celestial_body(moon_direction(hours), radius * 0.92, (0.85, 0.88, 0.95), size=6.0, glow=False)
-
-        glPopAttrib()
 
     @staticmethod
     def _draw_celestial_body(direction, distance, color, size, glow) -> None:

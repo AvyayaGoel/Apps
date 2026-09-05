@@ -5,7 +5,7 @@ rendering/scenery.py – more trees and clouds.
 import math
 import random
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -46,6 +46,7 @@ class Cloud:
     scale: float
     speed: float
     puffs: List[Tuple[float, float, float, float]]
+    display_list: Optional[int] = None
 
 
 class SceneryManager:
@@ -57,6 +58,7 @@ class SceneryManager:
         self.clouds: List[Cloud] = []
         self._tree_list = None
         self._rock_list = None
+        self._grass_list = None
         self._quadric = None
         self._generate()
 
@@ -160,6 +162,14 @@ class SceneryManager:
             glPopMatrix()
 
     def draw_grass_tufts(self) -> None:
+        if self._grass_list is None:
+            self._grass_list = glGenLists(1)
+            glNewList(self._grass_list, GL_COMPILE)
+            self._build_grass_tufts()
+            glEndList()
+        glCallList(self._grass_list)
+
+    def _build_grass_tufts(self) -> None:
         glPushAttrib(GL_ENABLE_BIT | GL_LIGHTING_BIT | GL_LINE_BIT | GL_CURRENT_BIT)
         glDisable(GL_LIGHTING)
         glLineWidth(1.2)
@@ -190,13 +200,18 @@ class SceneryManager:
         glColor4f(*self.config.cloud_color, 0.85)
         q = self._get_quadric()
         for cloud in self.clouds:
+            if cloud.display_list is None:
+                cloud.display_list = glGenLists(1)
+                glNewList(cloud.display_list, GL_COMPILE)
+                for dx, dy, dz, r in cloud.puffs:
+                    glPushMatrix()
+                    glTranslatef(dx, dy, dz)
+                    gluSphere(q, r, 10, 8)
+                    glPopMatrix()
+                glEndList()
             glPushMatrix()
             glTranslatef(cloud.x, cloud.y, cloud.z)
             glScalef(cloud.scale, cloud.scale, cloud.scale)
-            for dx, dy, dz, r in cloud.puffs:
-                glPushMatrix()
-                glTranslatef(dx, dy, dz)
-                gluSphere(q, r, 10, 8)
-                glPopMatrix()
+            glCallList(cloud.display_list)
             glPopMatrix()
         glPopAttrib()
