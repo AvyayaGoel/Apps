@@ -1,5 +1,11 @@
 """
-ui/toolbar.py – now includes density, scale, and constraint creation.
+ui/toolbar.py
+
+The left side panel: environment settings and constraint creation. Object
+spawning and scene/simulation controls now live in the top toolbar
+(top_toolbar.py) - this panel only holds things that are about *tuning* the
+world (gravity, friction, time of day, ...) or connecting existing objects
+together (springs/ropes/hinges/forces), not adding or switching modes.
 """
 
 from __future__ import annotations
@@ -7,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
+    QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 )
 
 from config import SimulationConfig
@@ -27,90 +33,9 @@ class ToolbarPanel(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.setSpacing(8)
 
-        layout.addWidget(CollapsiblePanel("Objects / Shapes", self._build_spawn_group(), expanded=True))
-        layout.addWidget(
-            CollapsiblePanel("Construction / Simulation", self._build_scene_controls_group(), expanded=True))
         layout.addWidget(CollapsiblePanel("World", self._build_environment_group(), expanded=True))
-        layout.addWidget(CollapsiblePanel("Constraints", self._build_constraints_group(), expanded=False))
+        layout.addWidget(CollapsiblePanel("Connect Objects", self._build_constraints_group(), expanded=True))
         layout.addStretch(1)
-
-    # ------------------------------------------------------------------
-    # Object spawning (expanded with walls, pyramid, etc.)
-    # ------------------------------------------------------------------
-
-    def _build_spawn_group(self) -> QWidget:
-        box = QWidget()
-        grid = QGridLayout(box)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(4)
-
-        # Two buttons per row rather than one long horizontal row per
-        # category - a row of 6-7 buttons doesn't fit in a 230-380px wide
-        # panel at all (it needed ~500-600px), which is what was forcing
-        # this whole area into a permanent, ugly horizontal scroll.
-        columns = 2
-        shapes = ("sphere", "cube", "cylinder", "cone", "torus", "pyramid",
-                  "ball", "cup", "table", "car", "ramp", "plank", "box",
-                  "wall", "floor_tile")
-        row = col = 0
-        for kind in shapes:
-            btn = QPushButton(kind.replace("_", " ").title())
-            btn.clicked.connect(lambda checked=False, k=kind: self.scene.spawn(k))
-            grid.addWidget(btn, row, col)
-            col += 1
-            if col >= columns:
-                col = 0
-                row += 1
-        for c in range(columns):
-            grid.setColumnStretch(c, 1)
-
-        force_btn = QPushButton("Force Arrow")
-        force_btn.clicked.connect(lambda: self.scene.spawn_force_object())
-        if col != 0:
-            row += 1
-        grid.addWidget(force_btn, row, 0, 1, columns)
-
-        return box
-
-    # ------------------------------------------------------------------
-    # Scene controls
-    # ------------------------------------------------------------------
-
-    def _build_scene_controls_group(self) -> QWidget:
-        box = QWidget()
-        grid = QGridLayout(box)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(4)
-
-        clear_btn = QPushButton("Clear All")
-        clear_btn.clicked.connect(self.scene.clear_all)
-
-        reset_btn = QPushButton("Reset Scene")
-        reset_btn.clicked.connect(self.scene.reset_default_scene)
-
-        place_btn = QPushButton("Place Mode")
-        place_btn.setCheckable(True)
-        place_btn.toggled.connect(lambda checked: bus.publish("input.set_place_mode", checked))
-
-        attach_btn = QPushButton("Attach Force")
-        attach_btn.setToolTip("Attach the selected force object to the selected body")
-        attach_btn.clicked.connect(self.scene.attach_selected_force_to_body)
-
-        simulate_btn = QPushButton("Simulate")
-        simulate_btn.clicked.connect(self.scene.begin_simulation)
-
-        stop_btn = QPushButton("Stop")
-        stop_btn.setToolTip("Stop simulation and return to construction mode")
-        stop_btn.clicked.connect(self.scene.stop_simulation)
-
-        columns = 2
-        for idx, btn in enumerate((clear_btn, reset_btn, place_btn, attach_btn, simulate_btn, stop_btn)):
-            r, c = divmod(idx, columns)
-            grid.addWidget(btn, r, c)
-        for c in range(columns):
-            grid.setColumnStretch(c, 1)
-
-        return box
 
     # ------------------------------------------------------------------
     # Environment sliders
@@ -186,7 +111,18 @@ class ToolbarPanel(QWidget):
         layout = QVBoxLayout(box)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self.secondary_label = QLabel("Body B: none (Shift+click a body to set)")
+        force_btn = QPushButton("New Force")
+        force_btn.setToolTip("Create a force arrow, then select it and a body and click Attach Force")
+        force_btn.clicked.connect(lambda: self.scene.spawn_force_object())
+        layout.addWidget(force_btn)
+
+        attach_btn = QPushButton("Attach Force")
+        attach_btn.setToolTip("Attach the selected force object to the selected body")
+        attach_btn.clicked.connect(self.scene.attach_selected_force_to_body)
+        layout.addWidget(attach_btn)
+
+        self.secondary_label = QLabel("Body B: none")
+        self.secondary_label.setToolTip("Shift+click a body in the viewport to set it as Body B")
         self.secondary_label.setStyleSheet("color: #aaa;")
         layout.addWidget(self.secondary_label)
         bus.subscribe("scene.secondary_selection_changed", self._on_secondary_selection_changed)
@@ -211,7 +147,7 @@ class ToolbarPanel(QWidget):
 
     def _on_secondary_selection_changed(self, body) -> None:
         if body is None:
-            self.secondary_label.setText("Body B: none (Shift+click a body to set)")
+            self.secondary_label.setText("Body B: none")
         else:
             self.secondary_label.setText(f"Body B: {body.object_kind} #{body.id}")
 

@@ -12,6 +12,7 @@ from gl_widget import SandboxGLWidget
 from property_panel import PropertyPanel
 from scene import Scene
 from toolbar import ToolbarPanel
+from top_toolbar import TopToolbar
 
 
 class MainWindow(QMainWindow):
@@ -35,6 +36,19 @@ class MainWindow(QMainWindow):
                 padding: 6px;
                 font-weight: 600;
                 text-align: left;
+            }
+            QToolButton:checked {
+                background: #2d6cdf;
+                border-color: #7fb0ff;
+            }
+            QWidget#topToolbar {
+                background: #272c33;
+                border-bottom: 1px solid #454d58;
+            }
+            QWidget#topToolbar QToolButton {
+                text-align: center;
+                padding: 4px 10px;
+                font-weight: 500;
             }
             QFrame#collapsibleContent {
                 background: #272c33;
@@ -124,11 +138,22 @@ class MainWindow(QMainWindow):
         self.scene = scene
         self.config = config
 
-        # Central widget is a horizontal splitter
-        central = QSplitter(Qt.Orientation.Horizontal)
-        self.setCentralWidget(central)
+        # Root: top toolbar, then the existing horizontal splitter below it.
+        root = QWidget()
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        self.setCentralWidget(root)
 
-        # Left panel: collapsible toolbox
+        self.top_toolbar = TopToolbar(scene)
+        self.top_toolbar.setObjectName("topToolbar")
+        root_layout.addWidget(self.top_toolbar)
+
+        central = QSplitter(Qt.Orientation.Horizontal)
+        root_layout.addWidget(central, stretch=1)
+
+        # Left panel: collapsible toolbox (now just World + Connect Objects -
+        # spawning and scene/simulation controls live in the top toolbar).
         left_widget = QWidget()
         left_widget.setObjectName("sidePanel")
         left_layout = QVBoxLayout(left_widget)
@@ -140,8 +165,8 @@ class MainWindow(QMainWindow):
         left_scroll = QScrollArea()
         left_scroll.setWidget(left_widget)
         left_scroll.setWidgetResizable(True)
-        left_scroll.setMinimumWidth(250)
-        left_scroll.setMaximumWidth(380)
+        left_scroll.setMinimumWidth(220)
+        left_scroll.setMaximumWidth(320)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         central.addWidget(left_scroll)
 
@@ -167,7 +192,7 @@ class MainWindow(QMainWindow):
         central.addWidget(right_scroll)
 
         # Set initial sizes
-        central.setSizes([280, 760, 360])
+        central.setSizes([240, 800, 360])
         central.setStretchFactor(0, 0)
         central.setStretchFactor(1, 1)
         central.setStretchFactor(2, 0)

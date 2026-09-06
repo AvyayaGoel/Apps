@@ -15,12 +15,14 @@ import meshes
 from body import RigidBody
 from camera import OrbitCamera
 from config import SimulationConfig
+from constraints import HingeConstraint, RopeConstraint, SpringConstraint
 from gizmo import TransformGizmo
-from math_utils import quat_to_matrix4, quat_from_axis_angle, normalize
+from math_utils import quat_to_matrix4, quat_from_axis_angle, quat_rotate_vector, normalize
 from scene import Scene
 from scenery import SceneryManager
 from sky import SkyRenderer, sun_direction
 from terrain import Terrain
+from tool_mode import ToolMode
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +89,96 @@ class Renderer:
 
         self._draw_bodies(scene, camera)
         self._draw_force_objects(scene, camera)
+        self._draw_constraints(scene)
 
         self.scenery.draw_clouds()
         glEnable(GL_LIGHTING)
+
+    @staticmethod
+    def _constraint_anchor_positions(con):
+        """World positions of both anchor points - the exact same formula
+        every constraint's solve() uses (body.position + rotated local
+        anchor), so what's drawn always matches what's actually being
+        solved. anchor_b/pos_b falls back to a fixed world point when
+        body_b is None (anchored to the world)."""
+        pos_a = con.body_a.position + quat_rotate_vector(con.body_a.orientation, con.anchor_a)
+        if con.body_b is not None:
+            pos_b = con.body_b.position + quat_rotate_vector(con.body_b.orientation, con.anchor_b)
+        else:
+            pos_b = con.anchor_b
+        return pos_a, pos_b
+
+    def _draw_constraints(self, scene: Scene) -> None:
+        glPushAttrib(GL_ENABLE_BIT | GL_LINE_BIT | GL_CURRENT_BIT | GL_LIGHTING_BIT)
+        glDisable(GL_LIGHTING)
+        for con in scene.world.constraints:
+            pos_a, pos_b = self._constraint_anchor_positions(con)
+            dim = not con.enabled
+            if isinstance(con, SpringConstraint):
+                self._draw_spring(pos_a, pos_b, dim)
+            elif isinstance(con, RopeConstraint):
+                self._draw_rope(pos_a, pos_b, dim)
+            elif isinstance(con, HingeConstraint):
+                self._draw_hinge(pos_a, pos_b, con.axis, dim)
+            if con is scene.selected_constraint:
+                self._draw_secondary_selection_highlight((pos_a + pos_b) * 0.5, 0.15)
+        glPopAttrib()
+
+    @staticmethod
+    def _draw_spring(pos_a: np.ndarray, pos_b: np.ndarray, dim: bool) -> None:
+        """Classic zigzag between the two anchors."""
+        delta = pos_b - pos_a
+        length = float(np.linalg.norm(delta))
+        if length < 1e-6:
+            return
+        axis = delta / length
+        up_ref = np.array([0.0, 1.0, 0.0]) if abs(axis[1]) < 0.9 else np.array([1.0, 0.0, 0.0])
+        side = normalize(np.cross(axis, up_ref))
+        coils = 10
+        radius = 0.06
+        glColor3f(*(0.4, 0.4, 0.42) if dim else (0.75, 0.75, 0.8))
+        glLineWidth(2.0)
+        glBegin(GL_LINE_STRIP)
+        glVertex3f(*pos_a)
+        for i in range(1, coils):
+            t = i / coils
+            offset = side * (radius if i % 2 else -radius)
+            glVertex3f(*(pos_a + axis * length * t + offset))
+        glVertex3f(*pos_b)
+        glEnd()
+
+    @staticmethod
+    def _draw_rope(pos_a: np.ndarray, pos_b: np.ndarray, dim: bool) -> None:
+        glColor3f(*(0.35, 0.3, 0.2) if dim else (0.65, 0.5, 0.3))
+        glLineWidth(2.5)
+        glBegin(GL_LINES)
+        glVertex3f(*pos_a)
+        glVertex3f(*pos_b)
+        glEnd()
+
+    @staticmethod
+    def _draw_hinge(pos_a: np.ndarray, pos_b: np.ndarray, axis: np.ndarray, dim: bool) -> None:
+        pivot = (pos_a + pos_b) * 0.5
+        glColor3f(*(0.4, 0.35, 0.15) if dim else (0.85, 0.7, 0.15))
+        glLineWidth(2.0)
+        glBegin(GL_LINES)
+        glVertex3f(*pos_a)
+        glVertex3f(*pivot)
+        glVertex3f(*pivot)
+        glVertex3f(*pos_b)
+        glEnd()
+        # Small ring around the pivot, perpendicular to the hinge axis, so
+        # the axis of rotation is visible at a glance.
+        ax = normalize(axis)
+        up_ref = np.array([0.0, 1.0, 0.0]) if abs(ax[1]) < 0.9 else np.array([1.0, 0.0, 0.0])
+        u = normalize(np.cross(ax, up_ref))
+        v = normalize(np.cross(ax, u))
+        glBegin(GL_LINE_LOOP)
+        for step in range(24):
+            theta = 2.0 * math.pi * step / 24
+            p = pivot + (math.cos(theta) * u + math.sin(theta) * v) * 0.12
+            glVertex3f(*p)
+        glEnd()
 
     def _draw_force_objects(self, scene: Scene, camera: OrbitCamera) -> None:
         for force in scene.world.force_objects:
@@ -156,7 +245,9 @@ class Renderer:
             if body is scene.selected_body:
                 if self.gizmo and scene.selected_body:
                     body = scene.selected_body
-                    self.gizmo.draw(body)
+                    show_translate = scene.tool_mode in (ToolMode.SELECT, ToolMode.MOVE)
+                    show_rotate = scene.tool_mode in (ToolMode.SELECT, ToolMode.ROTATE)
+                    self.gizmo.draw(body, show_translate=show_translate, show_rotate=show_rotate)
             elif body is scene.secondary_selected_body:
                 self._draw_secondary_selection_highlight(body.position, body.bounding_radius())
 
