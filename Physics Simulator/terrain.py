@@ -15,7 +15,7 @@ RGB = Tuple[float, float, float]
 
 def _mix(a: RGB, b: RGB, t: float) -> RGB:
     t = max(0.0, min(1.0, t))
-    return (a[0] * (1.0 - t) + b[0] * t, a[1] * (1.0 - t) + b[1] * t, a[2] * (1.0 - t) + b[2] * t)
+    return a[0] * (1.0 - t) + b[0] * t, a[1] * (1.0 - t) + b[1] * t, a[2] * (1.0 - t) + b[2] * t
 
 
 def _grass_noise(base: RGB, dirt: RGB, x: float, z: float) -> RGB:

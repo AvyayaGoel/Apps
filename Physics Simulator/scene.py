@@ -8,14 +8,15 @@ import logging
 import random
 from typing import Optional
 
+import object_catalog
 from body import RigidBody
 from config import SimulationConfig, config as global_config
 from constraints import HingeConstraint, RopeConstraint, SpringConstraint
 from event_bus import bus
-from factory import OBJECT_FACTORIES
 from force_object import ForceObject
 from math_utils import ray_sphere_intersect, vec3, quat_rotate_vector, quat_conjugate
 from scene_model import PhysicalSystem, SceneMode
+from tool_mode import ToolMode
 from world import PhysicsWorld
 
 logger = logging.getLogger(__name__)
@@ -30,23 +31,53 @@ class Scene:
         self.selected_force: Optional[ForceObject] = None
         self.selected_constraint: Optional[object] = None
         self.mode = SceneMode.CONSTRUCTION
+        self.tool_mode = ToolMode.SELECT
+        self.place_object_kind: Optional[str] = None
         self.physical_systems: list[PhysicalSystem] = []
         self.time_of_day = config.time_of_day_hours
 
         bus.subscribe("input.set_time_of_day", self._on_set_time_of_day)
         bus.subscribe("physics.body_removed", self._on_body_removed)
 
+    def set_tool_mode(self, mode: ToolMode) -> None:
+        if mode is self.tool_mode:
+            return
+        self.tool_mode = mode
+        if mode is not ToolMode.PLACE:
+            self.place_object_kind = None
+        bus.publish("scene.tool_mode_changed", mode)
+
+    def set_place_object(self, kind: str) -> None:
+        """Arm PLACE mode with a specific catalog object - the next click in
+        the viewport (Section: 'Add Object' palette -> Place) will spawn it
+        there. This is deliberately a separate step from spawn(): choosing
+        *what* to add (the palette) and choosing *where* to put it (a
+        viewport click) are two different actions now, instead of one
+        button that always drops the object at a random default spot."""
+        self.place_object_kind = kind
+        self.tool_mode = ToolMode.PLACE
+        bus.publish("scene.tool_mode_changed", ToolMode.PLACE)
+        bus.publish("scene.place_object_changed", kind)
+
+    def place_at(self, position) -> Optional[RigidBody]:
+        """Spawn the currently-armed PLACE object at a specific world
+        position (called from the viewport click handler in PLACE mode)."""
+        if self.place_object_kind is None:
+            return None
+        body = self.spawn(self.place_object_kind, position=position)
+        self.select(body)
+        return body
+
     # ------------------------------------------------------------------
     # Spawning (added wall, floor_tile, pyramid)
     # ------------------------------------------------------------------
 
     def spawn(self, kind: str, position=None, color=None) -> RigidBody:
-        factory = OBJECT_FACTORIES.get(kind)
-        if factory is None:
+        if kind not in object_catalog.CATALOG:
             raise ValueError(f"Unknown object kind: {kind!r}")
         if position is None:
             position = (random.uniform(-3, 3), 4.0 + random.uniform(0, 2), random.uniform(-3, 3))
-        body = factory(self.config, position, color)
+        body = object_catalog.spawn(kind, self.config, position, color)
         body.velocity[:] = 0.0
         body.angular_velocity[:] = 0.0
         self.world.add_body(body)

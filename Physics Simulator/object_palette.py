@@ -2,24 +2,23 @@
 ui/object_palette.py
 
 The "Add Object" picker: a popup panel showing every catalog object as a
-small preview button, organized into categories. Choosing one arms PLACE
-tool mode (scene.set_place_object) rather than immediately spawning it at a
-random spot - picking *what* to add and clicking *where* to put it are two
-separate steps now.
+small preview button, organized into categories read directly from
+object_catalog.py (which loads data/objects.json) - so adding a new object,
+including a future user-created one, automatically appears here without
+touching this file.
 
 Previews are simple QPainter-drawn 2D icons (shape family + the object's
 actual spawn color), not rendered 3D thumbnails. A true 3D preview would
 need a second, independent OpenGL context purely for thumbnail rendering -
 exactly the kind of "OpenGL context lifetime / rendering outside the active
-context" risk this project has already been bitten by twice (the gizmo
-crash and the render-matrix bug), so a lightweight but still genuinely
-representative 2D icon (real shape family + real color, not a placeholder)
-was the safer tradeoff.
+context" risk this project has already been bitten by more than once, so a
+lightweight but still genuinely representative 2D icon (real shape family +
+real color, not a placeholder) was the safer tradeoff.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 from PyQt6.QtCore import QPointF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap, QPolygonF
@@ -27,59 +26,14 @@ from PyQt6.QtWidgets import (
     QGridLayout, QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget
 )
 
+import object_catalog
+
 RGB = Tuple[float, float, float]
 
 _ICON_CIRCLE = "circle"
 _ICON_RECT = "rect"
 _ICON_TALL = "tall"
 _ICON_TRIANGLE = "triangle"
-
-# (category, [(kind, display_name, icon_family, representative_color), ...])
-# Colors mirror each factory function's actual default spawn color where one
-# exists; for shapes that randomize color (sphere/cube/cylinder/cone) a
-# representative swatch is used instead purely for the icon.
-CATALOG: List[Tuple[str, List[Tuple[str, str, str, RGB]]]] = [
-    ("Primitives", [
-        ("sphere", "Sphere", _ICON_CIRCLE, (0.25, 0.45, 0.85)),
-        ("cube", "Cube", _ICON_RECT, (0.35, 0.75, 0.35)),
-        ("cylinder", "Cylinder", _ICON_TALL, (0.75, 0.35, 0.80)),
-        ("cone", "Cone", _ICON_TRIANGLE, (0.95, 0.55, 0.15)),
-        ("torus", "Torus", _ICON_CIRCLE, (0.9, 0.6, 0.1)),
-        ("pyramid", "Pyramid", _ICON_TRIANGLE, (0.7, 0.5, 0.2)),
-    ]),
-    ("Furniture", [
-        ("table", "Table", _ICON_RECT, (0.55, 0.35, 0.18)),
-        ("chair", "Chair", _ICON_RECT, (0.5, 0.32, 0.16)),
-        ("bench", "Bench", _ICON_RECT, (0.5, 0.32, 0.16)),
-        ("stool", "Stool", _ICON_RECT, (0.55, 0.38, 0.2)),
-        ("cup", "Cup", _ICON_TALL, (0.9, 0.9, 0.95)),
-        ("well", "Well", _ICON_TALL, (0.55, 0.53, 0.5)),
-    ]),
-    ("Structures", [
-        ("wall", "Wall", _ICON_RECT, (0.7, 0.7, 0.7)),
-        ("floor_tile", "Floor Tile", _ICON_RECT, (0.5, 0.4, 0.3)),
-        ("ramp", "Ramp", _ICON_TRIANGLE, (0.6, 0.55, 0.5)),
-        ("stairs", "Stairs", _ICON_RECT, (0.65, 0.63, 0.6)),
-    ]),
-    ("Vehicles & Fun", [
-        ("car", "Car", _ICON_RECT, (0.75, 0.1, 0.1)),
-        ("rocket", "Rocket", _ICON_TRIANGLE, (0.85, 0.85, 0.9)),
-        ("dumbbell", "Dumbbell", _ICON_TALL, (0.15, 0.15, 0.18)),
-        ("lamp_post", "Lamp Post", _ICON_TALL, (0.2, 0.2, 0.22)),
-        ("mushroom", "Mushroom", _ICON_TRIANGLE, (0.75, 0.15, 0.15)),
-    ]),
-    ("Props", [
-        ("ball", "Ball", _ICON_CIRCLE, (0.9, 0.15, 0.15)),
-        ("box", "Box", _ICON_RECT, (0.65, 0.45, 0.25)),
-        ("plank", "Plank", _ICON_RECT, (0.65, 0.5, 0.32)),
-        ("barrel", "Barrel", _ICON_TALL, (0.55, 0.4, 0.15)),
-        ("traffic_cone", "Traffic Cone", _ICON_TRIANGLE, (0.95, 0.45, 0.1)),
-        ("pipe", "Pipe", _ICON_TALL, (0.55, 0.57, 0.6)),
-        ("boulder", "Boulder", _ICON_CIRCLE, (0.5, 0.48, 0.45)),
-        ("book", "Book", _ICON_RECT, (0.6, 0.15, 0.15)),
-        ("puck", "Puck", _ICON_TALL, (0.85, 0.15, 0.15)),
-    ]),
-]
 
 _icon_cache: Dict[Tuple[str, RGB], QIcon] = {}
 
@@ -124,7 +78,14 @@ class ObjectPalette(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.Popup)
+        # Tool window rather than Popup: Popup grabs the mouse/keyboard and
+        # auto-closes on focus loss, which is platform-specific behavior
+        # this couldn't be fully exercised without a real display. A Tool
+        # window is simpler and more predictable, at the cost of not
+        # auto-closing when you click elsewhere (picking an item or closing
+        # it directly still works via _choose()/the window controls).
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowTitle("Add Object")
         self.setMinimumWidth(320)
         self.setMaximumHeight(480)
         self.setStyleSheet("background: #20242a;")
@@ -140,7 +101,7 @@ class ObjectPalette(QWidget):
         content_layout = QVBoxLayout(content)
         content_layout.setSpacing(10)
 
-        for category, items in CATALOG:
+        for category, items in object_catalog.categories():
             label = QLabel(category)
             label.setStyleSheet("font-weight: bold; color: #9db4d1;")
             content_layout.addWidget(label)
@@ -148,14 +109,14 @@ class ObjectPalette(QWidget):
             grid = QGridLayout()
             grid.setSpacing(4)
             columns = 3
-            for idx, (kind, name, family, color) in enumerate(items):
+            for idx, obj in enumerate(items):
                 btn = QToolButton()
-                btn.setIcon(_make_icon(family, color))
+                btn.setIcon(_make_icon(obj.icon_family, obj.icon_color))
                 btn.setIconSize(QSize(32, 32))
-                btn.setText(name)
+                btn.setText(obj.display_name)
                 btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
                 btn.setMinimumWidth(88)
-                btn.clicked.connect(lambda checked=False, k=kind: self._choose(k))
+                btn.clicked.connect(lambda checked=False, k=obj.kind: self._choose(k))
                 row, col = divmod(idx, columns)
                 grid.addWidget(btn, row, col)
             content_layout.addLayout(grid)

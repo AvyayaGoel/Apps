@@ -142,6 +142,13 @@ def _box_box_contact(a: RigidBody, b: RigidBody) -> Optional[Tuple[np.ndarray, f
             best_overlap = overlap
             best_axis = axis
 
+    if best_axis is None:
+        # Only reachable if `axes` were empty, which can't currently happen
+        # (the 6 face-normal axes are always added unconditionally) - kept
+        # as a guard so a future change to axis generation fails safely
+        # instead of crashing on the negation below.
+        return None
+
     # Ensure normal points from A to B
     center_diff = b.position - a.position
     if np.dot(center_diff, best_axis) < 0:
@@ -304,6 +311,14 @@ def _sphere_sphere_contact(a: RigidBody, b: RigidBody):
     if dist >= min_dist:
         return None
     if dist < 1e-6:
+        # Centers are (numerically) coincident, so the separating direction
+        # is undefined - but returning None here means giving up on
+        # separating them at all. With nothing else to push them apart,
+        # they stay permanently interpenetrating (this is the "two bodies
+        # glitch into each other and stay glitched" bug: it's reproducible
+        # any time two centers end up exactly coincident, e.g. typing the
+        # same position into both bodies' property panels). Fall back to a
+        # fixed direction so the solver still has something to push along.
         normal = np.array([0.0, 1.0, 0.0])
         penetration = min_dist
     else:

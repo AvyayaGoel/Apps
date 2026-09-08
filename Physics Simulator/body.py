@@ -99,6 +99,17 @@ class RigidBody:
         self.scale = new_scale
         self._update_mass_from_density()
 
+    def set_mass(self, new_mass: float) -> None:
+        """Change mass directly, keeping density consistent with the
+        current volume (rather than leaving density stale after a direct
+        mass edit)."""
+        new_mass = max(0.001, new_mass)
+        vol = self._volume() * (self.scale ** 3)
+        if vol > 1e-9:
+            self.density = new_mass / vol
+        self.mass = new_mass
+        self._update_inv_mass()
+
     def set_density(self, new_density: float) -> None:
         """Change density and update mass."""
         new_density = max(0.001, new_density)
@@ -160,7 +171,7 @@ class RigidBody:
     # ------------------------------------------------------------------
 
     def apply_impulse(self, impulse: np.ndarray, contact_point: Optional[np.ndarray] = None) -> None:
-        if self.is_static or self.inv_mass == 0.0:
+        if self.is_static or self.inv_mass <= 0.0:
             return
         self.velocity += impulse * self.inv_mass
         self.wake()

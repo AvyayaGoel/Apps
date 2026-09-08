@@ -110,19 +110,24 @@ class Renderer:
 
     def _draw_constraints(self, scene: Scene) -> None:
         glPushAttrib(GL_ENABLE_BIT | GL_LINE_BIT | GL_CURRENT_BIT | GL_LIGHTING_BIT)
-        glDisable(GL_LIGHTING)
-        for con in scene.world.constraints:
-            pos_a, pos_b = self._constraint_anchor_positions(con)
-            dim = not con.enabled
-            if isinstance(con, SpringConstraint):
-                self._draw_spring(pos_a, pos_b, dim)
-            elif isinstance(con, RopeConstraint):
-                self._draw_rope(pos_a, pos_b, dim)
-            elif isinstance(con, HingeConstraint):
-                self._draw_hinge(pos_a, pos_b, con.axis, dim)
-            if con is scene.selected_constraint:
-                self._draw_secondary_selection_highlight((pos_a + pos_b) * 0.5, 0.15)
-        glPopAttrib()
+        try:
+            glDisable(GL_LIGHTING)
+            for con in scene.world.constraints:
+                try:
+                    pos_a, pos_b = self._constraint_anchor_positions(con)
+                    dim = not con.enabled
+                    if isinstance(con, SpringConstraint):
+                        self._draw_spring(pos_a, pos_b, dim)
+                    elif isinstance(con, RopeConstraint):
+                        self._draw_rope(pos_a, pos_b, dim)
+                    elif isinstance(con, HingeConstraint):
+                        self._draw_hinge(pos_a, pos_b, con.axis, dim)
+                    if con is scene.selected_constraint:
+                        self._draw_secondary_selection_highlight((pos_a + pos_b) * 0.5, 0.15)
+                except Exception:
+                    logger.exception(f"Failed to draw constraint {id(con)}")
+        finally:
+            glPopAttrib()
 
     @staticmethod
     def _draw_spring(pos_a: np.ndarray, pos_b: np.ndarray, dim: bool) -> None:
@@ -185,9 +190,9 @@ class Renderer:
             pos = force.get_world_position()
             if not self._is_force_visible_at(pos, camera):
                 continue
+            glPushMatrix()
             try:
                 list_id = meshes.get_display_list("force", {"length": 0.8}, "force", scale=1.0)
-                glPushMatrix()
                 glTranslatef(*pos)
                 up = normalize(force.direction)
                 angle = np.arccos(np.clip(np.dot(up, [0, 1, 0]), -1, 1))
@@ -197,12 +202,19 @@ class Renderer:
                     glMultMatrixf(quat_to_matrix4(q))
                 glColor3f(*force.color)
                 glCallList(list_id)
-                glPopMatrix()
-
-                if force is scene.selected_force:
-                    self._draw_force_selection_highlight(pos)
             except Exception as e:
                 logger.exception(f"Failed to draw force object {id(force)}: {e}")
+            finally:
+                # Must always run - a skipped pop here permanently
+                # imbalances the matrix stack, corrupting every subsequent
+                # draw call for the rest of the session, not just this one.
+                glPopMatrix()
+
+            if force is scene.selected_force:
+                try:
+                    self._draw_force_selection_highlight(pos)
+                except Exception:
+                    logger.exception(f"Failed to draw selection highlight for force {id(force)}")
 
     @staticmethod
     def _is_force_visible_at(position, camera) -> bool:
@@ -234,20 +246,37 @@ class Renderer:
         for body in scene.world.bodies:
             if not self._is_visible(body, camera):
                 continue
-            list_id = meshes.get_display_list(body.shape, body.shape_params, body.object_kind, body.scale)
             glPushMatrix()
-            glTranslatef(*body.position)
-            glMultMatrixf(quat_to_matrix4(body.orientation))
-            glColor3f(*body.color)
-            glCallList(list_id)
-            glPopMatrix()
+            try:
+                list_id = meshes.get_display_list(body.shape, body.shape_params, body.object_kind, body.scale)
+                glTranslatef(*body.position)
+                glMultMatrixf(quat_to_matrix4(body.orientation))
+                glColor3f(*body.color)
+                glCallList(list_id)
+            except Exception:
+                logger.exception(f"Failed to draw body {body.id} (kind={body.object_kind!r})")
+            finally:
+                # glPopMatrix must run no matter what, or a failure here
+                # leaves the matrix stack permanently imbalanced - which
+                # would corrupt every other body's rendering for the rest
+                # of the session, not just this one's.
+                glPopMatrix()
 
             if body is scene.selected_body:
                 if self.gizmo and scene.selected_body:
                     body = scene.selected_body
-                    show_translate = scene.tool_mode in (ToolMode.SELECT, ToolMode.MOVE)
-                    show_rotate = scene.tool_mode in (ToolMode.SELECT, ToolMode.ROTATE)
-                    self.gizmo.draw(body, show_translate=show_translate, show_rotate=show_rotate)
+                    try:
+                        # getattr with a fallback, not scene.tool_mode
+                        # directly: if this attribute is ever missing (e.g.
+                        # a partially-applied update) this must not crash
+                        # the whole render - it should just show both
+                        # handles like it always used to.
+                        mode = getattr(scene, "tool_mode", ToolMode.SELECT)
+                        show_translate = mode in (ToolMode.SELECT, ToolMode.MOVE)
+                        show_rotate = mode in (ToolMode.SELECT, ToolMode.ROTATE)
+                        self.gizmo.draw(body, show_translate=show_translate, show_rotate=show_rotate)
+                    except Exception:
+                        logger.exception(f"Failed to draw gizmo for body {body.id}")
             elif body is scene.secondary_selected_body:
                 self._draw_secondary_selection_highlight(body.position, body.bounding_radius())
 

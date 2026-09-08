@@ -4,6 +4,7 @@ rendering/meshes.py – improved composite objects.
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Dict, Tuple
 
 import numpy as np
@@ -144,29 +145,6 @@ def _build_cup():
     glPopMatrix()
 
 
-def _build_table():
-    half_h, half_w, half_d = 1.0, 0.45, 0.6
-    top_half_thickness = 0.05
-    top_center_y = half_w - top_half_thickness
-    leg_height = half_w + top_center_y - top_half_thickness
-    leg_center_y = -half_w + leg_height * 0.5
-    leg_radius = 0.06
-
-    # Table top
-    glPushMatrix()
-    glTranslatef(0, top_center_y, 0)
-    draw_box(half_extents=(half_h, top_half_thickness, half_d))
-    glPopMatrix()
-
-    # Four legs
-    for sx in (-1, 1):
-        for sz in (-1, 1):
-            glPushMatrix()
-            glTranslatef(sx * (half_h - 0.15), leg_center_y, sz * (half_d - 0.1))
-            draw_cylinder(radius=leg_radius, height=leg_height, slices=10)
-            glPopMatrix()
-
-
 def _build_car():
     # Car body
     draw_box(half_extents=(0.8, 0.3, 0.45))
@@ -258,9 +236,55 @@ def _build_pyramid():
     glEnd()
 
 
+def _build_from_parts(parts: list) -> None:
+    """Draw a compound mesh described as data: a list of parts, each a
+    primitive shape (box/sphere/cylinder/cone/torus) with an optional
+    offset, rotation, non-uniform scale, and color override. This is what
+    lets new objects (and, eventually, user-created ones) be added as a
+    JSON entry instead of a new Python function - every part still goes
+    through the same draw_box/draw_cylinder/draw_cone/draw_sphere/draw_torus
+    helpers already proven safe elsewhere in this file, so this adds no new
+    raw OpenGL calls of its own."""
+    for part in parts:
+        glPushMatrix()
+        try:
+            offset = part.get("offset", (0.0, 0.0, 0.0))
+            glTranslatef(*offset)
+            rot = part.get("rotation_deg")
+            if rot:
+                rx, ry, rz = rot
+                if rx:
+                    glRotatef(rx, 1, 0, 0)
+                if ry:
+                    glRotatef(ry, 0, 1, 0)
+                if rz:
+                    glRotatef(rz, 0, 0, 1)
+            part_scale = part.get("scale")
+            if part_scale:
+                glScalef(*part_scale)
+            color = part.get("color")
+            if color:
+                glColor3f(*color)
+            shape = part.get("shape")
+            if shape == "box":
+                draw_box(half_extents=tuple(part.get("half_extents", (0.4, 0.4, 0.4))))
+            elif shape == "sphere":
+                draw_sphere(radius=part.get("radius", 0.5))
+            elif shape == "cylinder":
+                draw_cylinder(radius=part.get("radius", 0.4), height=part.get("height", 0.9))
+            elif shape == "cone":
+                draw_cone(radius=part.get("radius", 0.5), height=part.get("height", 1.0))
+            elif shape == "torus":
+                draw_torus(radius=part.get("radius", 0.5), tube_radius=part.get("tube_radius", 0.18),
+                           sides=part.get("sides", 16), rings=part.get("rings", 24))
+            else:
+                logging.getLogger(__name__).warning(f"Unknown part shape {shape!r} - skipping this part")
+        finally:
+            glPopMatrix()
+
+
 KIND_BUILDERS: Dict[str, Callable[..., None]] = {
     "cup": _build_cup,
-    "table": _build_table,
     "car": _build_car,
     "ramp": _build_ramp,
     "force": lambda: draw_force_arrow(),
@@ -272,25 +296,41 @@ _display_list_cache: Dict[Tuple, int] = {}
 
 def _build_shape_geometry(shape: str, shape_params: dict, object_kind: str, scale: float) -> None:
     glPushMatrix()
-    glScalef(scale, scale, scale)
-    builder = KIND_BUILDERS.get(object_kind)
-    if builder is not None:
-        builder()
+    try:
+        glScalef(scale, scale, scale)
+        try:
+            import object_catalog
+            parts = object_catalog.get_parts(object_kind)
+            if parts:
+                _build_from_parts(parts)
+                return
+            legacy_name = object_catalog.get_legacy_mesh(object_kind)
+            if legacy_name is not None:
+                builder = KIND_BUILDERS.get(legacy_name)
+                if builder is not None:
+                    builder()
+                    return
+        except ImportError:
+            pass  # object_catalog unavailable - fall through to the old path below
+
+        builder = KIND_BUILDERS.get(object_kind)
+        if builder is not None:
+            builder()
+            return
+        if object_kind == "torus":
+            draw_torus(shape_params.get("radius", 0.5), shape_params.get("tube_radius", 0.18))
+        elif shape == "sphere":
+            draw_sphere(shape_params.get("radius", 0.5))
+        elif shape == "box":
+            draw_box(shape_params.get("half_extents", (0.4, 0.4, 0.4)))
+        elif shape == "cylinder":
+            draw_cylinder(shape_params.get("radius", 0.4), shape_params.get("height", 0.9))
+        elif shape == "cone":
+            draw_cone(shape_params.get("radius", 0.5), shape_params.get("height", 1.0))
+        else:
+            draw_sphere(shape_params.get("radius", 0.5))
+    finally:
         glPopMatrix()
-        return
-    if object_kind == "torus":
-        draw_torus(shape_params.get("radius", 0.5), shape_params.get("tube_radius", 0.18))
-    elif shape == "sphere":
-        draw_sphere(shape_params.get("radius", 0.5))
-    elif shape == "box":
-        draw_box(shape_params.get("half_extents", (0.4, 0.4, 0.4)))
-    elif shape == "cylinder":
-        draw_cylinder(shape_params.get("radius", 0.4), shape_params.get("height", 0.9))
-    elif shape == "cone":
-        draw_cone(shape_params.get("radius", 0.5), shape_params.get("height", 1.0))
-    else:
-        draw_sphere(shape_params.get("radius", 0.5))
-    glPopMatrix()
 
 
 def draw_force_arrow(length: float = 0.8, head_length: float = 0.25,
@@ -316,8 +356,21 @@ def get_display_list(shape: str, shape_params: dict, object_kind: str, scale: fl
 
     list_id = glGenLists(1)
     glNewList(list_id, GL_COMPILE)
-    _build_shape_geometry(shape, shape_params, object_kind, scale)
-    glEndList()
+    try:
+        _build_shape_geometry(shape, shape_params, object_kind, scale)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            f"Mesh builder failed for object_kind={object_kind!r} shape={shape!r} - "
+            f"finishing the display list anyway so OpenGL isn't left stuck mid-compile"
+        )
+    finally:
+        # glEndList() MUST run no matter what happened above. Leaving a
+        # glNewList block open (e.g. because the builder raised) leaves the
+        # GL context in "compiling a display list" state indefinitely - every
+        # subsequent GL call anywhere in the app gets redirected into this
+        # list instead of rendering normally, which can break or crash
+        # completely unrelated drawing later in the same frame or session.
+        glEndList()
     _display_list_cache[key] = list_id
     return list_id
 

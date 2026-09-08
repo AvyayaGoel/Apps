@@ -15,7 +15,6 @@ import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
-from event_bus import bus
 from math_utils import normalize, quat_from_axis_angle, quat_multiply, quat_rotate_vector, ray_plane_intersect, \
     ray_sphere_intersect, vec3
 
@@ -48,7 +47,7 @@ class TransformGizmo:
 
     def _arrow_start_offset(self, body, axis_index: int) -> float:
         """Calculate where the arrow should start to touch the object surface.
-        
+
         This computes the distance from center to surface along the given axis,
         accounting for object shape, scale, and orientation.
         """
@@ -79,29 +78,42 @@ class TransformGizmo:
         else:
             return self._object_radius(body)
 
-    def draw(self, body):
-        """Draw arrows from object sides and object-oriented rotation rings."""
+    def draw(self, body, show_translate: bool = True, show_rotate: bool = True):
+        """Draw arrows from object sides and object-oriented rotation rings.
+        show_translate/show_rotate let the active tool mode restrict which
+        handles are visible (Move mode -> arrows only, Rotate mode -> rings
+        only), matching what's actually interactable in that mode instead
+        of always cluttering the view with both."""
         position = body.position
         orientation = body.orientation
         radius = self._object_radius(body)
         arrow_length = self.axis_length * max(0.75, body.scale)
         glPushAttrib(GL_ENABLE_BIT | GL_LINE_BIT | GL_CURRENT_BIT | GL_LIGHTING_BIT)
-        glDisable(GL_LIGHTING)
-        glLineWidth(2.0)
+        try:
+            glDisable(GL_LIGHTING)
+            glLineWidth(2.0)
 
-        q = gluNewQuadric()
-        for i, color in enumerate(_AXIS_COLORS):
-            axis = self._axis_world(orientation, i)
-            # Start arrow at object surface along this axis
-            start_offset = self._arrow_start_offset(body, i)
-            start = position + axis * start_offset
-            glColor3f(*color)
-            self._draw_arrow(q, start, axis, arrow_length)
-            # Draw rotation ring at a reasonable distance from object
-            ring_radius = radius * self.ring_radius_factor
-            self._draw_ring(position, orientation, i, ring_radius)
-        gluDeleteQuadric(q)
-        glPopAttrib()
+            q = gluNewQuadric()
+            try:
+                for i, color in enumerate(_AXIS_COLORS):
+                    axis = self._axis_world(orientation, i)
+                    glColor3f(*color)
+                    if show_translate:
+                        # Start arrow at object surface along this axis
+                        start_offset = self._arrow_start_offset(body, i)
+                        start = position + axis * start_offset
+                        self._draw_arrow(q, start, axis, arrow_length)
+                    if show_rotate:
+                        # Draw rotation ring at a reasonable distance from object
+                        ring_radius = radius * self.ring_radius_factor
+                        self._draw_ring(position, orientation, i, ring_radius)
+            finally:
+                gluDeleteQuadric(q)
+        finally:
+            # Must always run - a skipped pop here leaves the GL attribute
+            # stack imbalanced, which corrupts unrelated rendering for the
+            # rest of the session, not just the gizmo.
+            glPopAttrib()
 
     def _draw_arrow(self, quadric, start, axis, length):
         end_shaft = start + axis * max(0.05, length - self.cone_height)
@@ -140,7 +152,12 @@ class TransformGizmo:
         angle = math.degrees(math.acos(dot))
         glRotatef(angle, *rot_axis)
 
-    def pick(self, ray_origin, ray_dir, body) -> Tuple[Optional[Tuple[str, int]], Optional[np.ndarray]]:
+    def pick(self, ray_origin, ray_dir, body, allowed_mode: Optional[str] = None
+             ) -> Tuple[Optional[Tuple[str, int]], Optional[np.ndarray]]:
+        """allowed_mode restricts which handle type is considered: None (the
+        default) checks both, "translate" only checks arrows, "rotate" only
+        checks rings - matching draw()'s show_translate/show_rotate so a
+        restricted tool mode can't pick a handle it isn't even showing."""
         position = body.position
         orientation = body.orientation
         radius = self._object_radius(body)
@@ -151,26 +168,28 @@ class TransformGizmo:
 
         for i in range(3):
             axis = self._axis_world(orientation, i)
-            # Use the same shape-aware surface offset draw() uses for the
-            # arrow start, so the clickable tip actually sits where the
-            # arrow is visibly drawn (this used to use the generic bounding
-            # radius here, which only matches for spheres - for a box the
-            # visible tip and the pick point could be ~0.3 units apart).
-            start_offset = self._arrow_start_offset(body, i)
-            tip = position + axis * (start_offset + arrow_length)
-            t = ray_sphere_intersect(ray_origin, ray_dir, tip, self.hit_radius * max(1.0, body.scale))
-            if t is not None and t < best_t:
-                best_t = t
-                best_handle = ("translate", i)
-                best_hit = ray_origin + ray_dir * t
+            if allowed_mode in (None, "translate"):
+                # Use the same shape-aware surface offset draw() uses for the
+                # arrow start, so the clickable tip actually sits where the
+                # arrow is visibly drawn (this used to use the generic bounding
+                # radius here, which only matches for spheres - for a box the
+                # visible tip and the pick point could be ~0.3 units apart).
+                start_offset = self._arrow_start_offset(body, i)
+                tip = position + axis * (start_offset + arrow_length)
+                t = ray_sphere_intersect(ray_origin, ray_dir, tip, self.hit_radius * max(1.0, body.scale))
+                if t is not None and t < best_t:
+                    best_t = t
+                    best_handle = ("translate", i)
+                    best_hit = ray_origin + ray_dir * t
 
-            ring_hit = self._pick_ring(ray_origin, ray_dir, position, axis, radius * self.ring_radius_factor)
-            if ring_hit is not None:
-                t_ring, hit = ring_hit
-                if t_ring < best_t:
-                    best_t = t_ring
-                    best_handle = ("rotate", i)
-                    best_hit = hit
+            if allowed_mode in (None, "rotate"):
+                ring_hit = self._pick_ring(ray_origin, ray_dir, position, axis, radius * self.ring_radius_factor)
+                if ring_hit is not None:
+                    t_ring, hit = ring_hit
+                    if t_ring < best_t:
+                        best_t = t_ring
+                        best_handle = ("rotate", i)
+                        best_hit = hit
         return best_handle, best_hit
 
     def _pick_ring(self, ray_origin, ray_dir, center, normal, radius):
@@ -215,6 +234,8 @@ class TransformGizmo:
         if s < 0:
             return None
         new_pos = self.drag_origin + t * self.drag_axis
+        # Publish transform change for property panel sync
+        from event_bus import bus
         bus.publish("scene.body_transform_changed", body)
         return new_pos
 
@@ -233,7 +254,21 @@ class TransformGizmo:
         sin_angle = float(np.dot(np.cross(self.rotation_start_vector, current), self.drag_axis))
         cos_angle = float(np.clip(np.dot(self.rotation_start_vector, current), -1.0, 1.0))
         angle = math.atan2(sin_angle, cos_angle)
+
+        # NOTE: no camera-based sign flip here. The angle above already comes
+        # from real world-space ray/plane hit points (the same technique
+        # every major 3D editor uses for single-axis ring rotation), which
+        # makes it camera-viewpoint-invariant by construction: dragging the
+        # cursor around the ring always sweeps by the angle the cursor
+        # actually moved through, regardless of where the camera is. A
+        # previous version flipped the sign based on camera_forward, which
+        # made the *same* physical drag produce opposite rotations depending
+        # on which side of the axis the camera was viewing from - confirmed
+        # by direct test, not just visually "looked reversed" from one angle.
+
         delta = quat_from_axis_angle(self.drag_axis, angle)
         new_orientation = quat_multiply(delta, self.rotation_start_orientation)
+        # Publish transform change for property panel sync
+        from event_bus import bus
         bus.publish("scene.body_transform_changed", body)
         return new_orientation

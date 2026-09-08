@@ -71,14 +71,10 @@ class ForceObject:
             body.apply_impulse(impulse, contact_point)
             if self.is_one_shot:
                 self.is_active = False
-        elif self.force_type == ForceType.CONSTANT:
-            # Proper physics: force * dt = impulse, then apply at contact point
-            # This gives F = ma behavior with proper torque from offset
-            force = self.direction * self.magnitude
-            impulse = force * dt
-            body.apply_impulse(impulse, contact_point)
-        elif self.force_type == ForceType.VARIABLE:
-            # Placeholder — same as constant for now
+        elif self.force_type in (ForceType.CONSTANT, ForceType.VARIABLE):
+            # VARIABLE is a placeholder that behaves like CONSTANT for now -
+            # proper physics: force * dt = impulse, applied at contact point
+            # gives F = ma behavior with proper torque from offset.
             force = self.direction * self.magnitude
             impulse = force * dt
             body.apply_impulse(impulse, contact_point)

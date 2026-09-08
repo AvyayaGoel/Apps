@@ -28,6 +28,17 @@ class Constraint:
     damping: float = 0.1
     enabled: bool = True
 
+    def __post_init__(self) -> None:
+        # anchor_b is Optional in the type because it means something
+        # different depending on body_b (a local offset when body_b is a
+        # real body, a world-space point when body_b is None/world-anchored)
+        # - but it should never actually BE None while body_b is set, since
+        # every solve() indexes into it. No current call site does this,
+        # but nothing enforces it either, so guard against it here rather
+        # than crashing deep inside a physics step if it ever happens.
+        if self.body_b is not None and self.anchor_b is None:
+            self.anchor_b = vec3()
+
     def solve(self, dt: float) -> None:
         """Apply constraint correction. Override in subclasses."""
         pass
