@@ -12,6 +12,8 @@ rendering/, and ui/.
 
 import logging
 import sys
+import traceback
+from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
@@ -19,7 +21,34 @@ from config import config
 from main_window import MainWindow
 from scene import Scene
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+LOG_PATH = Path(__file__).resolve().parent / "physics_simulator.log"
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # visible when run from a terminal
+        logging.FileHandler(LOG_PATH, mode="w", encoding="utf-8"),  # always visible - check this file
+    ],
+)
+
+_logger = logging.getLogger("uncaught")
+
+
+def _log_uncaught_exception(exc_type, exc_value, exc_tb) -> None:
+    """Guarantee any exception that would otherwise crash the app silently
+    (no console attached, e.g. double-clicking on Windows) is written to
+    physics_simulator.log before anything else happens. This does not stop
+    the crash or change its behavior - it only makes sure the traceback
+    that explains it is never lost."""
+    _logger.critical(
+        "UNCAUGHT EXCEPTION - the app is likely about to crash:\n%s",
+        "".join(traceback.format_exception(exc_type, exc_value, exc_tb)),
+    )
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+
+sys.excepthook = _log_uncaught_exception
 
 
 def main() -> int:

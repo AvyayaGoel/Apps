@@ -13,9 +13,10 @@ from __future__ import annotations
 import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
+    QComboBox, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget
 )
 
+import environment_presets
 from config import SimulationConfig
 from constraints import SpringConstraint, RopeConstraint, HingeConstraint
 from event_bus import bus
@@ -46,37 +47,105 @@ class ToolbarPanel(QWidget):
         layout = QVBoxLayout(box)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        layout.addWidget(self._make_slider_row(
-            "Time of Day", 0, 240, int(self.config.time_of_day_hours * 10),
-            self._on_time_of_day_changed, suffix_fn=lambda v: f"{v / 10:.1f}h"))
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(QLabel("Preset:"))
+        self.preset_combo = QComboBox()
+        self.preset_combo.addItems(environment_presets.preset_names())
+        self.preset_combo.setCurrentText(environment_presets.active_preset_name())
+        self.preset_combo.currentTextChanged.connect(self._on_preset_changed)
+        preset_row.addWidget(self.preset_combo, 1)
+        layout.addLayout(preset_row)
 
-        layout.addWidget(self._make_slider_row(
-            "Surface Friction", 0, 100, int(self.config.ground_friction * 100),
-            self._on_friction_changed, suffix_fn=lambda v: f"{v / 100:.2f}"))
+        self.lock_label = QLabel()
+        self.lock_label.setWordWrap(True)
+        self.lock_label.setStyleSheet("color: #9aa1ab; font-style: italic;")
+        layout.addWidget(self.lock_label)
 
-        layout.addWidget(self._make_slider_row(
-            "Surface Bounciness", 0, 100, int(self.config.ground_restitution * 100),
-            self._on_restitution_changed, suffix_fn=lambda v: f"{v / 100:.2f}"))
+        self.edit_custom_btn = QPushButton("Edit as Custom")
+        self.edit_custom_btn.setToolTip(
+            "Built-in presets can't be edited in place - this copies the current "
+            "preset's values into the Custom slot and switches to it")
+        self.edit_custom_btn.clicked.connect(self._start_custom)
+        layout.addWidget(self.edit_custom_btn)
 
-        layout.addWidget(self._make_slider_row(
-            "Gravity", 0, 200, int(self.config.gravity * 10),
-            lambda v: setattr(self.config, "gravity", v / 10.0),
-            suffix_fn=lambda v: f"{v / 10:.1f} m/s²"))
+        # (config field, label, slider range, slider->config, config->slider, display)
+        self._env_sliders = []
+        self._add_env_slider(layout, "time_of_day_hours", "Time of Day", 0, 240,
+                             lambda v: v / 10.0, lambda cv: int(cv * 10), lambda cv: f"{cv:.1f}h")
+        self._add_env_slider(layout, "ground_friction", "Surface Friction", 0, 100,
+                             lambda v: v / 100.0, lambda cv: int(cv * 100), lambda cv: f"{cv:.2f}")
+        self._add_env_slider(layout, "ground_restitution", "Surface Bounciness", 0, 100,
+                             lambda v: v / 100.0, lambda cv: int(cv * 100), lambda cv: f"{cv:.2f}")
+        self._add_env_slider(layout, "gravity", "Gravity", 0, 200,
+                             lambda v: v / 10.0, lambda cv: int(cv * 10), lambda cv: f"{cv:.1f} m/s\u00b2")
+        self._add_env_slider(layout, "air_damping", "Air Damping", 0, 100,
+                             lambda v: 1 - v / 100.0, lambda cv: int((1 - cv) * 100), lambda cv: f"{cv:.3f}")
+        self._add_env_slider(layout, "angular_damping", "Angular Damping", 0, 100,
+                             lambda v: 1 - v / 100.0, lambda cv: int((1 - cv) * 100), lambda cv: f"{cv:.3f}")
 
-        layout.addWidget(self._make_slider_row(
-            "Air Damping", 0, 100, int((1 - self.config.air_damping) * 100),
-            lambda v: setattr(self.config, "air_damping", 1 - v / 100.0),
-            suffix_fn=lambda v: f"{1 - v / 100:.3f}"))
-
-        layout.addWidget(self._make_slider_row(
-            "Angular Damping", 0, 100, int((1 - self.config.angular_damping) * 100),
-            lambda v: setattr(self.config, "angular_damping", 1 - v / 100.0),
-            suffix_fn=lambda v: f"{1 - v / 100:.3f}"))
-
+        self._refresh_lock_state()
         return box
 
+    def _add_env_slider(self, layout, field_name, label_text, minimum, maximum,
+                        slider_to_config, config_to_slider, display) -> None:
+        current_value = getattr(self.config, field_name)
+        container, slider, value_label = self._make_slider_row(
+            label_text, minimum, maximum, config_to_slider(current_value),
+            lambda v: self._on_env_slider_changed(field_name, slider_to_config(v)),
+            suffix_fn=lambda v: display(slider_to_config(v)))
+        layout.addWidget(container)
+        self._env_sliders.append((field_name, slider, value_label, config_to_slider, display))
+
+    def _on_env_slider_changed(self, field_name: str, value: float) -> None:
+        # Sliders are disabled while a locked preset is active, so in
+        # practice this only fires while Custom is active - but guard it
+        # anyway rather than relying on the UI state alone.
+        if environment_presets.is_locked(environment_presets.active_preset_name()):
+            return
+        environment_presets.update_custom(self.config, field_name, value)
+        if field_name == "time_of_day_hours":
+            # scene.time_of_day (not config.time_of_day_hours directly) is
+            # what the sky/sun renderer actually reads - route through the
+            # same event the slider always used, or the sky would silently
+            # stop following this slider.
+            bus.publish("input.set_time_of_day", value)
+
+    def _apply_time_of_day_to_scene(self) -> None:
+        bus.publish("input.set_time_of_day", self.config.time_of_day_hours)
+
+    def _on_preset_changed(self, name: str) -> None:
+        environment_presets.apply_preset(self.config, name)
+        self._refresh_slider_values()
+        self._refresh_lock_state()
+        self._apply_time_of_day_to_scene()
+
+    def _start_custom(self) -> None:
+        environment_presets.start_custom_from_current(self.config)
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.setCurrentText("Custom")
+        self.preset_combo.blockSignals(False)
+        self._refresh_lock_state()
+        self._apply_time_of_day_to_scene()
+
+    def _refresh_slider_values(self) -> None:
+        for field_name, slider, value_label, config_to_slider, display in self._env_sliders:
+            current_value = getattr(self.config, field_name)
+            slider.blockSignals(True)
+            slider.setValue(config_to_slider(current_value))
+            slider.blockSignals(False)
+            value_label.setText(display(current_value))
+
+    def _refresh_lock_state(self) -> None:
+        locked = environment_presets.is_locked(environment_presets.active_preset_name())
+        self.lock_label.setText(
+            "This is a built-in preset - values are fixed. Use 'Edit as Custom' to change them."
+            if locked else "Custom environment - sliders below are editable.")
+        self.edit_custom_btn.setVisible(locked)
+        for _, slider, _, _, _ in self._env_sliders:
+            slider.setEnabled(not locked)
+
     @staticmethod
-    def _make_slider_row(label_text, minimum, maximum, value, on_change, suffix_fn) -> QWidget:
+    def _make_slider_row(label_text, minimum, maximum, value, on_change, suffix_fn):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 4, 0, 4)
@@ -100,7 +169,7 @@ class ToolbarPanel(QWidget):
 
         slider.valueChanged.connect(handle_change)
         layout.addWidget(slider)
-        return container
+        return container, slider, value_label
 
     # ------------------------------------------------------------------
     # Constraints group
@@ -189,13 +258,3 @@ class ToolbarPanel(QWidget):
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _on_time_of_day_changed(raw_value: int) -> None:
-        bus.publish("input.set_time_of_day", raw_value / 10.0)
-
-    def _on_friction_changed(self, raw_value: int) -> None:
-        self.config.ground_friction = raw_value / 100.0
-
-    def _on_restitution_changed(self, raw_value: int) -> None:
-        self.config.ground_restitution = raw_value / 100.0

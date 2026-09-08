@@ -1,0 +1,64 @@
+{
+  "presets": [
+    {
+      "name": "Earth",
+      "locked": true,
+      "gravity": 9.8,
+      "ground_friction": 0.6,
+      "ground_restitution": 0.4,
+      "air_damping": 0.999,
+      "angular_damping": 0.995,
+      "time_of_day_hours": 10.0
+    },
+    {
+      "name": "Moon",
+      "locked": true,
+      "gravity": 1.62,
+      "ground_friction": 0.5,
+      "ground_restitution": 0.3,
+      "air_damping": 1.0,
+      "angular_damping": 0.999,
+      "time_of_day_hours": 10.0
+    },
+    {
+      "name": "Space (zero-g)",
+      "locked": true,
+      "gravity": 0.0,
+      "ground_friction": 0.3,
+      "ground_restitution": 0.6,
+      "air_damping": 1.0,
+      "angular_damping": 1.0,
+      "time_of_day_hours": 10.0
+    },
+    {
+      "name": "Bouncy World",
+      "locked": true,
+      "gravity": 9.8,
+      "ground_friction": 0.4,
+      "ground_restitution": 0.95,
+      "air_damping": 0.999,
+      "angular_damping": 0.995,
+      "time_of_day_hours": 12.0
+    },
+    {
+      "name": "Molasses",
+      "locked": true,
+      "gravity": 6.0,
+      "ground_friction": 0.9,
+      "ground_restitution": 0.05,
+      "air_damping": 0.95,
+      "angular_damping": 0.9,
+      "time_of_day_hours": 10.0
+    },
+    {
+      "name": "Custom",
+      "locked": false,
+      "gravity": 9.8,
+      "ground_friction": 0.6,
+      "ground_restitution": 0.4,
+      "air_damping": 0.999,
+      "angular_damping": 0.995,
+      "time_of_day_hours": 10.0
+    }
+  ]
+}
