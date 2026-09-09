@@ -90,6 +90,9 @@ class Renderer:
         self._draw_bodies(scene, camera)
         self._draw_force_objects(scene, camera)
         self._draw_constraints(scene)
+        
+        # Draw placement ghost if in placement mode
+        self._draw_placement_ghost(scene, camera)
 
         self.scenery.draw_clouds()
         glEnable(GL_LIGHTING)
@@ -351,6 +354,62 @@ class Renderer:
         glEnd()
         glPopMatrix()
         glPopAttrib()
+
+    def _draw_placement_ghost(self, scene: Scene, camera: OrbitCamera) -> None:
+        """Draw a semi-transparent ghost of the object to be placed at the mouse position."""
+        # Get the GL widget to access placement mode state
+        from PyQt6.QtWidgets import QApplication
+        gl_widget = QApplication.instance().focusWidget() if QApplication.instance() else None
+        if not hasattr(gl_widget, '_placement_mode') or not gl_widget._placement_mode:
+            return
+        
+        mouse_pos_3d = getattr(gl_widget, '_mouse_pos_3d', None)
+        if mouse_pos_3d is None:
+            return
+        
+        kind = scene.place_object_kind or scene.last_placed_kind
+        if kind is None:
+            return
+        
+        # Get shape info for the ghost
+        try:
+            import object_catalog
+            obj_data = object_catalog.CATALOG.get(kind)
+            if obj_data is None:
+                return
+            
+            shape = obj_data.shape
+            shape_params = obj_data.shape_params.copy()
+            scale = 0.7  # Ghost scale
+            
+            glPushMatrix()
+            try:
+                glDisable(GL_LIGHTING)
+                glEnable(GL_BLEND)
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+                glColor4f(0.3, 0.8, 0.3, 0.4)  # Semi-transparent green
+                
+                list_id = meshes.get_display_list(shape, shape_params, kind, scale)
+                glTranslatef(*mouse_pos_3d)
+                glCallList(list_id)
+                
+                # Draw a small indicator ring on the ground
+                glColor4f(0.3, 0.8, 0.3, 0.6)
+                glLineWidth(2.0)
+                radius = 0.3
+                glBegin(GL_LINE_LOOP)
+                for i in range(32):
+                    theta = 2.0 * math.pi * i / 32
+                    x = math.cos(theta) * radius
+                    z = math.sin(theta) * radius
+                    glVertex3f(x, 0.0, z)
+                glEnd()
+            finally:
+                glDisable(GL_BLEND)
+                glEnable(GL_LIGHTING)
+                glPopMatrix()
+        except Exception as e:
+            logger.exception(f"Failed to draw placement ghost: {e}")
 
 
 def _draw_wire_sphere(radius: float, meridians: int = 12, parallels: int = 8) -> None:

@@ -255,18 +255,10 @@ class TransformGizmo:
         cos_angle = float(np.clip(np.dot(self.rotation_start_vector, current), -1.0, 1.0))
         angle = math.atan2(sin_angle, cos_angle)
 
-        # NOTE: no camera-based sign flip here. The angle above already comes
-        # from real world-space ray/plane hit points (the same technique
-        # every major 3D editor uses for single-axis ring rotation), which
-        # makes it camera-viewpoint-invariant by construction: dragging the
-        # cursor around the ring always sweeps by the angle the cursor
-        # actually moved through, regardless of where the camera is. A
-        # previous version flipped the sign based on camera_forward, which
-        # made the *same* physical drag produce opposite rotations depending
-        # on which side of the axis the camera was viewing from - confirmed
-        # by direct test, not just visually "looked reversed" from one angle.
-
-        delta = quat_from_axis_angle(self.drag_axis, angle)
+        # Apply rotation directly to the body's orientation
+        # The delta quaternion represents the rotation from start to current position
+        # Use negative angle to match visual cursor movement direction
+        delta = quat_from_axis_angle(self.drag_axis, -angle)
         new_orientation = quat_multiply(delta, self.rotation_start_orientation)
         # Publish transform change for property panel sync
         from event_bus import bus

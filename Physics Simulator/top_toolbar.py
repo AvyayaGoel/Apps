@@ -113,6 +113,10 @@ class TopToolbar(QWidget):
         pos = anchor.mapToGlobal(anchor.rect().bottomLeft())
         self._palette.move(pos)
         self._palette.show()
+        # Automatically enter PLACE mode when palette is opened
+        # Use a default kind in case one hasn't been selected yet
+        if self.scene.place_object_kind is None:
+            self.scene.set_place_object("sphere")
 
     # ------------------------------------------------------------------
     # Scene / simulation controls
