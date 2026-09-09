@@ -65,6 +65,7 @@ class SandboxGLWidget(QOpenGLWidget):
         self._placement_kind = "sphere"
         self._free_camera = False
         self._pressed_keys = set()
+        self._mouse_pos_3d = None  # Current 3D position under mouse for ghost rendering
 
         # Gizmo drag state
         self._gizmo_dragging = False
@@ -138,7 +139,9 @@ class SandboxGLWidget(QOpenGLWidget):
             t = ray_plane_intersect(ray_o, ray_d, vec3(0, 0, 0), vec3(0, 1, 0))
             if t is not None:
                 world_pos = ray_o + ray_d * t
-                self.scene.spawn(self._placement_kind, position=world_pos)
+                # Use the scene's last_placed_kind as fallback
+                kind = self.scene.place_object_kind or self.scene.last_placed_kind
+                self.scene.spawn(kind, position=world_pos)
             return
 
         # Check gizmo pick first
@@ -191,6 +194,15 @@ class SandboxGLWidget(QOpenGLWidget):
         dx = pos.x() - self._last_mouse_pos.x()
         dy = pos.y() - self._last_mouse_pos.y()
         self._last_mouse_pos = pos
+
+        # Update 3D mouse position for ghost rendering in placement mode
+        if self._placement_mode:
+            ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
+            t = ray_plane_intersect(ray_o, ray_d, vec3(0, 0, 0), vec3(0, 1, 0))
+            if t is not None:
+                self._mouse_pos_3d = ray_o + ray_d * t
+            else:
+                self._mouse_pos_3d = None
 
         # Gizmo drag
         if self._gizmo_dragging and self.scene.selected_body:
@@ -310,3 +322,5 @@ class SandboxGLWidget(QOpenGLWidget):
 
     def _set_place_mode(self, enabled: bool) -> None:
         self._placement_mode = enabled
+        if not enabled:
+            self._mouse_pos_3d = None

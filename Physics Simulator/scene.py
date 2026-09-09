@@ -33,6 +33,7 @@ class Scene:
         self.mode = SceneMode.CONSTRUCTION
         self.tool_mode = ToolMode.SELECT
         self.place_object_kind: Optional[str] = None
+        self.last_placed_kind: str = "sphere"  # Default for place mode
         self.physical_systems: list[PhysicalSystem] = []
         self.time_of_day = config.time_of_day_hours
 
@@ -55,6 +56,7 @@ class Scene:
         viewport click) are two different actions now, instead of one
         button that always drops the object at a random default spot."""
         self.place_object_kind = kind
+        self.last_placed_kind = kind  # Remember for quick place mode
         self.tool_mode = ToolMode.PLACE
         bus.publish("scene.tool_mode_changed", ToolMode.PLACE)
         bus.publish("scene.place_object_changed", kind)
