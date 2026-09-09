@@ -348,8 +348,19 @@ def draw_force_arrow(length: float = 0.8, head_length: float = 0.25,
     glPopMatrix()
 
 
+def _make_hashable(value):
+    """Convert potentially unhashable values (like lists) to hashable equivalents (tuples)."""
+    if isinstance(value, list):
+        return tuple(_make_hashable(v) for v in value)
+    elif isinstance(value, dict):
+        return tuple(sorted((k, _make_hashable(v)) for k, v in value.items()))
+    else:
+        return value
+
+
 def get_display_list(shape: str, shape_params: dict, object_kind: str, scale: float = 1.0) -> int:
-    key = (object_kind, shape, tuple(sorted(shape_params.items())), scale)
+    hashable_params = tuple(sorted((k, _make_hashable(v)) for k, v in shape_params.items()))
+    key = (object_kind, shape, hashable_params, scale)
     list_id = _display_list_cache.get(key)
     if list_id is not None:
         return list_id
