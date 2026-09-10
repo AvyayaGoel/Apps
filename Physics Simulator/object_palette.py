@@ -78,12 +78,6 @@ class ObjectPalette(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        # Tool window rather than Popup: Popup grabs the mouse/keyboard and
-        # auto-closes on focus loss, which is platform-specific behavior
-        # this couldn't be fully exercised without a real display. A Tool
-        # window is simpler and more predictable, at the cost of not
-        # auto-closing when you click elsewhere (picking an item or closing
-        # it directly still works via _choose()/the window controls).
         self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
         self.setWindowTitle("Add Object")
         self.setMinimumWidth(320)

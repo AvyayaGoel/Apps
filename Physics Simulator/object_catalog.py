@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from body import RigidBody
-from config import SimulationConfig
 from math_utils import vec3
 
 RGB = Tuple[float, float, float]
@@ -146,7 +145,7 @@ def get_legacy_mesh(kind: str) -> Optional[str]:
     return obj.legacy_mesh if obj is not None else None
 
 
-def spawn(kind: str, config: SimulationConfig, position, color: Optional[RGB] = None) -> RigidBody:
+def spawn(kind: str, position, color: Optional[RGB] = None) -> RigidBody:
     obj = CATALOG.get(kind)
     if obj is None:
         raise ValueError(f"Unknown object kind: {kind!r}")

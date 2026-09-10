@@ -43,7 +43,8 @@ class ForceObject:
     def __post_init__(self):
         self.direction = normalize(self.direction)
 
-    def bounding_radius(self) -> float:
+    @staticmethod
+    def bounding_radius() -> float:
         """For picking (visual radius)."""
         return 0.5
 

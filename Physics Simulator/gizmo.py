@@ -15,6 +15,7 @@ import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
+from event_bus import bus
 from math_utils import normalize, quat_from_axis_angle, quat_multiply, quat_rotate_vector, ray_plane_intersect, \
     ray_sphere_intersect, vec3
 
@@ -234,12 +235,10 @@ class TransformGizmo:
         if s < 0:
             return None
         new_pos = self.drag_origin + t * self.drag_axis
-        # Publish transform change for property panel sync
-        from event_bus import bus
         bus.publish("scene.body_transform_changed", body)
         return new_pos
 
-    def update_rotation(self, ray_origin, ray_dir, body, camera_forward=None):
+    def update_rotation(self, ray_origin, ray_dir, body):
         if self.selected_axis is None or self.selected_mode != "rotate" or self.rotation_start_vector is None:
             return None
         t = ray_plane_intersect(ray_origin, ray_dir, body.position, self.drag_axis)
@@ -255,12 +254,7 @@ class TransformGizmo:
         cos_angle = float(np.clip(np.dot(self.rotation_start_vector, current), -1.0, 1.0))
         angle = math.atan2(sin_angle, cos_angle)
 
-        # Apply rotation directly to the body's orientation
-        # The delta quaternion represents the rotation from start to current position
-        # Use negative angle to match visual cursor movement direction
-        delta = quat_from_axis_angle(self.drag_axis, -angle)
+        delta = quat_from_axis_angle(self.drag_axis, angle)
         new_orientation = quat_multiply(delta, self.rotation_start_orientation)
-        # Publish transform change for property panel sync
-        from event_bus import bus
         bus.publish("scene.body_transform_changed", body)
         return new_orientation

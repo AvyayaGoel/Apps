@@ -12,6 +12,7 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 
 import meshes
+import object_catalog
 from body import RigidBody
 from camera import OrbitCamera
 from config import SimulationConfig
@@ -92,7 +93,7 @@ class Renderer:
         self._draw_constraints(scene)
         
         # Draw placement ghost if in placement mode
-        self._draw_placement_ghost(scene, camera)
+        self._draw_placement_ghost(scene)
 
         self.scenery.draw_clouds()
         glEnable(GL_LIGHTING)
@@ -355,25 +356,21 @@ class Renderer:
         glPopMatrix()
         glPopAttrib()
 
-    def _draw_placement_ghost(self, scene: Scene, camera: OrbitCamera) -> None:
+    def _draw_placement_ghost(self, scene: Scene) -> None:
         """Draw a semi-transparent ghost of the object to be placed at the mouse position."""
-        # Get the GL widget to access placement mode state
-        from PyQt6.QtWidgets import QApplication
-        gl_widget = QApplication.instance().focusWidget() if QApplication.instance() else None
-        if not hasattr(gl_widget, '_placement_mode') or not gl_widget._placement_mode:
+        if scene.tool_mode is not ToolMode.PLACE:
             return
-        
-        mouse_pos_3d = getattr(gl_widget, '_mouse_pos_3d', None)
+
+        mouse_pos_3d = scene.place_cursor_pos
         if mouse_pos_3d is None:
             return
-        
+
         kind = scene.place_object_kind or scene.last_placed_kind
         if kind is None:
             return
         
         # Get shape info for the ghost
         try:
-            import object_catalog
             obj_data = object_catalog.CATALOG.get(kind)
             if obj_data is None:
                 return

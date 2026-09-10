@@ -11,8 +11,10 @@ import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
+import object_catalog
 from math_utils import normalize
 
+logger = logging.getLogger(__name__)
 _quadric = None
 
 
@@ -278,7 +280,7 @@ def _build_from_parts(parts: list) -> None:
                 draw_torus(radius=part.get("radius", 0.5), tube_radius=part.get("tube_radius", 0.18),
                            sides=part.get("sides", 16), rings=part.get("rings", 24))
             else:
-                logging.getLogger(__name__).warning(f"Unknown part shape {shape!r} - skipping this part")
+                logger.warning(f"Unknown part shape {shape!r} - skipping this part")
         finally:
             glPopMatrix()
 
@@ -299,7 +301,6 @@ def _build_shape_geometry(shape: str, shape_params: dict, object_kind: str, scal
     try:
         glScalef(scale, scale, scale)
         try:
-            import object_catalog
             parts = object_catalog.get_parts(object_kind)
             if parts:
                 _build_from_parts(parts)
@@ -310,8 +311,8 @@ def _build_shape_geometry(shape: str, shape_params: dict, object_kind: str, scal
                 if builder is not None:
                     builder()
                     return
-        except ImportError:
-            pass  # object_catalog unavailable - fall through to the old path below
+        except ImportError as e:
+            logger.exception(e)
 
         builder = KIND_BUILDERS.get(object_kind)
         if builder is not None:
@@ -370,7 +371,7 @@ def get_display_list(shape: str, shape_params: dict, object_kind: str, scale: fl
     try:
         _build_shape_geometry(shape, shape_params, object_kind, scale)
     except Exception:
-        logging.getLogger(__name__).exception(
+        logger.exception(
             f"Mesh builder failed for object_kind={object_kind!r} shape={shape!r} - "
             f"finishing the display list anyway so OpenGL isn't left stuck mid-compile"
         )

@@ -97,9 +97,13 @@ def quat_to_matrix4(q: np.ndarray) -> np.ndarray:
     m[2, 0] = 2 * (xz + wy)
     m[2, 1] = 2 * (yz - wx)
     m[2, 2] = 1 - 2 * (xx + yy)
-    # numpy stores this row-major; OpenGL wants column-major, and since the
-    # rotation part above is written row-major we transpose before upload.
-    return m.T.flatten()
+    # This m, as indexed above, is already the correct matrix for OpenGL's
+    # column-major glMultMatrixf upload - do NOT transpose it here. Verified
+    # numerically against quat_rotate_vector (what force arrows and
+    # constraint anchors use): m.T.flatten() renders the inverse of the true
+    # rotation, which is exactly why bodies were rotating opposite to the
+    # gizmo drag while arrows/anchors tracked it correctly.
+    return m.flatten()
 
 
 # ----------------------------------------------------------------------

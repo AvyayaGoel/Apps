@@ -34,6 +34,7 @@ class Scene:
         self.tool_mode = ToolMode.SELECT
         self.place_object_kind: Optional[str] = None
         self.last_placed_kind: str = "sphere"  # Default for place mode
+        self.place_cursor_pos = None  # World-space ghost position while in PLACE mode
         self.physical_systems: list[PhysicalSystem] = []
         self.time_of_day = config.time_of_day_hours
 
@@ -46,6 +47,7 @@ class Scene:
         self.tool_mode = mode
         if mode is not ToolMode.PLACE:
             self.place_object_kind = None
+            self.place_cursor_pos = None
         bus.publish("scene.tool_mode_changed", mode)
 
     def set_place_object(self, kind: str) -> None:
@@ -60,6 +62,14 @@ class Scene:
         self.tool_mode = ToolMode.PLACE
         bus.publish("scene.tool_mode_changed", ToolMode.PLACE)
         bus.publish("scene.place_object_changed", kind)
+
+    def enter_place_mode(self) -> None:
+        """Arm PLACE mode directly (e.g. a keyboard shortcut) without going
+        through the 'Add Object' palette, reusing whatever was last placed
+        or chosen there. Falls back to last_placed_kind's own default
+        ("sphere") the very first time this is ever called, so it can never
+        crash from having nothing armed."""
+        self.set_place_object(self.last_placed_kind)
 
     def place_at(self, position) -> Optional[RigidBody]:
         """Spawn the currently-armed PLACE object at a specific world
@@ -79,7 +89,7 @@ class Scene:
             raise ValueError(f"Unknown object kind: {kind!r}")
         if position is None:
             position = (random.uniform(-3, 3), 4.0 + random.uniform(0, 2), random.uniform(-3, 3))
-        body = object_catalog.spawn(kind, self.config, position, color)
+        body = object_catalog.spawn(kind, position, color)
         body.velocity[:] = 0.0
         body.angular_velocity[:] = 0.0
         self.world.add_body(body)
@@ -106,8 +116,6 @@ class Scene:
 
     def select(self, obj) -> None:
         if isinstance(obj, RigidBody):
-            # If shift held, set as secondary
-            # We'll handle via a method in gl_widget: set_secondary
             self.selected_body = obj
             self.selected_constraint = None
             bus.publish("scene.selection_changed", obj)
@@ -193,7 +201,8 @@ class Scene:
             return
         self.move_force_to(self.selected_force, world_pos)
 
-    def move_force_to(self, force: ForceObject, world_pos) -> None:
+    @staticmethod
+    def move_force_to(force: ForceObject, world_pos) -> None:
         world_pos = vec3(*world_pos)
         if force.attached_to is not None:
             body = force.attached_to
@@ -293,14 +302,11 @@ class Scene:
 
         # Detach forces still targeting this body rather than leaving a
         # "ghost" force arrow that renders forever at its last position.
-        for force in list(self.world.force_objects):
+        for force in self.world.force_objects:
             if force.attached_to is body:
                 self.detach_force(force)
 
-        # Drop constraints referencing this body - solving them against a
-        # body no longer in world.bodies would silently keep applying real
-        # impulses to whatever live body is still attached to it.
-        for con in list(self.world.constraints):
+        for con in self.world.constraints:
             if con.body_a is body or con.body_b is body:
                 self.world.remove_constraint(con)
                 for system in self.physical_systems:

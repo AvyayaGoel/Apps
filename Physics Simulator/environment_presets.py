@@ -27,10 +27,6 @@ logger = logging.getLogger(__name__)
 
 _DATA_PATH = Path(__file__).resolve().parent / "data" / "environments.json"
 
-# The subset of SimulationConfig fields an environment preset controls.
-# Kept as an explicit list (rather than "every SimulationConfig field") so
-# presets can't accidentally reach into rendering/camera/performance
-# settings that have nothing to do with "the environment".
 PRESET_FIELDS = [
     "gravity", "ground_friction", "ground_restitution",
     "air_damping", "angular_damping", "time_of_day_hours",

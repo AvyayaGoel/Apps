@@ -20,6 +20,7 @@ from gizmo import TransformGizmo
 from math_utils import ray_plane_intersect, vec3
 from renderer import Renderer
 from scene import Scene
+from tool_mode import ToolMode
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +62,8 @@ class SandboxGLWidget(QOpenGLWidget):
         self._press_pos = None
         self._pending_deselect = False
 
-        self._placement_mode = False
-        self._placement_kind = "sphere"
         self._free_camera = False
         self._pressed_keys = set()
-        self._mouse_pos_3d = None  # Current 3D position under mouse for ghost rendering
 
         # Gizmo drag state
         self._gizmo_dragging = False
@@ -81,7 +79,6 @@ class SandboxGLWidget(QOpenGLWidget):
         self._timer.start(int(1000 / config.target_fps))
 
         bus.subscribe("scene.selection_changed", lambda body: self.selection_changed.emit(body))
-        bus.subscribe("input.set_place_mode", self._set_place_mode)
         for evt in ("scene.object_spawned", "scene.object_removed", "physics.body_added",
                     "physics.body_removed", "scene.cleared", "scene.reset"):
             bus.subscribe(evt, lambda *_: self.object_count_changed.emit(len(self.scene.world.bodies)))
@@ -134,14 +131,12 @@ class SandboxGLWidget(QOpenGLWidget):
         self._last_mouse_pos = event.position()
         pos = event.position()
 
-        if self._placement_mode and event.button() == Qt.MouseButton.LeftButton:
+        if self.scene.tool_mode is ToolMode.PLACE and event.button() == Qt.MouseButton.LeftButton:
             ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
             t = ray_plane_intersect(ray_o, ray_d, vec3(0, 0, 0), vec3(0, 1, 0))
             if t is not None:
                 world_pos = ray_o + ray_d * t
-                # Use the scene's last_placed_kind as fallback
-                kind = self.scene.place_object_kind or self.scene.last_placed_kind
-                self.scene.spawn(kind, position=world_pos)
+                self.scene.place_at(world_pos)
             return
 
         # Check gizmo pick first
@@ -196,20 +191,19 @@ class SandboxGLWidget(QOpenGLWidget):
         self._last_mouse_pos = pos
 
         # Update 3D mouse position for ghost rendering in placement mode
-        if self._placement_mode:
+        if self.scene.tool_mode is ToolMode.PLACE:
             ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
             t = ray_plane_intersect(ray_o, ray_d, vec3(0, 0, 0), vec3(0, 1, 0))
             if t is not None:
-                self._mouse_pos_3d = ray_o + ray_d * t
+                self.scene.place_cursor_pos = ray_o + ray_d * t
             else:
-                self._mouse_pos_3d = None
+                self.scene.place_cursor_pos = None
 
         # Gizmo drag
         if self._gizmo_dragging and self.scene.selected_body:
             ray_o, ray_d = self.camera.screen_to_ray(pos.x(), pos.y())
             if self._gizmo_axis and self._gizmo_axis[0] == "rotate":
-                new_orientation = self.gizmo.update_rotation(ray_o, ray_d, self.scene.selected_body,
-                                                             self.camera.forward())
+                new_orientation = self.gizmo.update_rotation(ray_o, ray_d, self.scene.selected_body)
                 if new_orientation is not None:
                     self.scene.selected_body.orientation = new_orientation
                     self.scene.selected_body.angular_velocity[:] = 0.0
@@ -280,7 +274,10 @@ class SandboxGLWidget(QOpenGLWidget):
         elif key == Qt.Key.Key_Space:
             self.scene.apply_random_impulse()
         elif key == Qt.Key.Key_P:
-            self._placement_mode = not self._placement_mode
+            if self.scene.tool_mode is ToolMode.PLACE:
+                self.scene.set_tool_mode(ToolMode.SELECT)
+            else:
+                self.scene.enter_place_mode()
         elif key == Qt.Key.Key_F:
             self._free_camera = not self._free_camera
             self.camera.set_free_mode(self._free_camera)
@@ -315,12 +312,3 @@ class SandboxGLWidget(QOpenGLWidget):
             self.camera.move_up(-amount)
         if Qt.Key.Key_E in self._pressed_keys:
             self.camera.move_up(amount)
-
-    # ------------------------------------------------------------------
-    # Placement mode
-    # ------------------------------------------------------------------
-
-    def _set_place_mode(self, enabled: bool) -> None:
-        self._placement_mode = enabled
-        if not enabled:
-            self._mouse_pos_3d = None
