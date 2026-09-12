@@ -1,8 +1,9 @@
 """
 physics/body.py
 
-Defines RigidBody: the physics-only representation of an object.
-Now includes density, scale, and automatic mass update from volume.
+Defines RigidBody: the physics representation of an object.
+Now uses Mesh-based geometry for proper mass properties, inertia tensors,
+and collision detection. Primitives are converted to meshes on creation.
 """
 
 from __future__ import annotations
@@ -14,7 +15,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from math_utils import IDENTITY_QUAT, quat_integrate, quat_rotate_vector, vec3
+from math_utils import IDENTITY_QUAT, quat_integrate, quat_rotate_vector, vec3, quat_to_rotation_matrix
+from mesh import Mesh, create_box_mesh, create_sphere_mesh, create_cylinder_mesh, create_cone_mesh
 
 SHAPE_SPHERE = "sphere"
 SHAPE_BOX = "box"
@@ -49,10 +51,16 @@ class RigidBody:
     color: Tuple[float, float, float] = (0.7, 0.7, 0.7)
     object_kind: str = "shape"
     id: int = field(default_factory=lambda: next(_id_counter))
-
+    
+    # Mesh-based geometry (lazy-initialized)
+    _mesh: Optional[Mesh] = None
+    _local_inertia_tensor: Optional[np.ndarray] = None
+    _inv_local_inertia_tensor: Optional[np.ndarray] = None
+    
     def __post_init__(self) -> None:
         self._update_inv_mass()
         self._update_mass_from_density()
+        self._update_inertia_tensors()
 
     # ------------------------------------------------------------------
     # Mass / density / scale
@@ -97,7 +105,10 @@ class RigidBody:
         """Change scale and update mass accordingly."""
         new_scale = max(0.01, new_scale)
         self.scale = new_scale
+        # Invalidate cached mesh so it gets recreated at new scale
+        self._mesh = None
         self._update_mass_from_density()
+        self._update_inertia_tensors()
 
     def set_mass(self, new_mass: float) -> None:
         """Change mass directly, keeping density consistent with the
@@ -115,6 +126,67 @@ class RigidBody:
         new_density = max(0.001, new_density)
         self.density = new_density
         self._update_mass_from_density()
+
+    # ------------------------------------------------------------------
+    # Mesh-based geometry
+    # ------------------------------------------------------------------
+    
+    @property
+    def mesh(self) -> Mesh:
+        """Get the mesh for this body, creating it if necessary."""
+        if self._mesh is None:
+            self._mesh = self._create_mesh()
+        return self._mesh
+    
+    def _create_mesh(self) -> Mesh:
+        """Create a mesh from the shape and shape_params."""
+        if self.shape == SHAPE_BOX:
+            hx, hy, hz = self.shape_params.get("half_extents", (0.4, 0.4, 0.4))
+            return create_box_mesh((hx, hy, hz))
+        elif self.shape == SHAPE_SPHERE:
+            r = self.shape_params.get("radius", 0.5)
+            return create_sphere_mesh(r, subdivisions=3)
+        elif self.shape == SHAPE_CYLINDER:
+            r = self.shape_params.get("radius", 0.4)
+            h = self.shape_params.get("height", 0.9)
+            return create_cylinder_mesh(r, h, segments=24)
+        elif self.shape == SHAPE_CONE:
+            r = self.shape_params.get("radius", 0.5)
+            h = self.shape_params.get("height", 1.0)
+            return create_cone_mesh(r, h, segments=24)
+        else:
+            # Fallback to box
+            return create_box_mesh((0.4, 0.4, 0.4))
+    
+    def _update_inertia_tensors(self) -> None:
+        """Update local and inverse local inertia tensors based on mesh geometry."""
+        if self.is_static or self.mass <= 1e-9:
+            self._local_inertia_tensor = np.eye(3, dtype=np.float64)
+            self._inv_local_inertia_tensor = np.eye(3, dtype=np.float64)
+            return
+        
+        # Get inertia tensor from mesh at current scale
+        scaled_mesh = self.mesh.scale(self.scale)
+        self._local_inertia_tensor = scaled_mesh.compute_inertia_tensor(self.mass)
+        
+        # Compute inverse
+        try:
+            self._inv_local_inertia_tensor = np.linalg.inv(self._local_inertia_tensor)
+        except np.linalg.LinAlgError:
+            # Fallback to diagonal approximation
+            diag = np.diag(self._local_inertia_tensor)
+            diag[diag < 1e-10] = 1e-10
+            self._inv_local_inertia_tensor = np.diag(1.0 / diag)
+    
+    def get_world_inertia_tensor(self) -> np.ndarray:
+        """Get inertia tensor in world coordinates."""
+        R = quat_to_rotation_matrix(self.orientation)
+        return R @ self._local_inertia_tensor @ R.T
+    
+    def get_world_inv_inertia_tensor(self) -> np.ndarray:
+        """Get inverse inertia tensor in world coordinates."""
+        R = quat_to_rotation_matrix(self.orientation)
+        return R @ self._inv_local_inertia_tensor @ R.T
 
     # ------------------------------------------------------------------
     # Bounding helpers (use scaled dimensions)
@@ -171,6 +243,7 @@ class RigidBody:
     # ------------------------------------------------------------------
 
     def apply_impulse(self, impulse: np.ndarray, contact_point: Optional[np.ndarray] = None) -> None:
+        """Apply impulse at a contact point, generating both linear and angular response."""
         if self.is_static or self.inv_mass <= 0.0:
             return
         self.velocity += impulse * self.inv_mass
@@ -178,11 +251,10 @@ class RigidBody:
         if contact_point is not None:
             r = contact_point - self.position
             torque_impulse = np.cross(r, impulse)
-            # Approximate inertia tensor as sphere
-            radius = self.bounding_radius()
-            inertia = 0.4 * self.mass * radius * radius
-            inv_inertia = 1.0 / inertia if inertia > 1e-9 else 0.0
-            self.angular_velocity += torque_impulse * inv_inertia
+            # Use proper inertia tensor instead of sphere approximation
+            inv_inertia_world = self.get_world_inv_inertia_tensor()
+            delta_angular_velocity = inv_inertia_world @ torque_impulse
+            self.angular_velocity += delta_angular_velocity
 
     def wake(self) -> None:
         self.is_asleep = False
