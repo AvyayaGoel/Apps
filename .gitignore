@@ -1,3 +1,0 @@
-The provided file changes list appears to contain invalid or corrupted file paths (containing only quotes and partial words like '"Physics'). Since there are no valid file extensions or recognizable build artifacts, dependencies, or temporary files in the change list, and following rule #6 which states to output empty if the changes contain only source/config files with no build artifacts, I cannot determine appropriate ignore patterns from this input.
-
-(empty)
