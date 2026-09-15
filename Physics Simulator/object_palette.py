@@ -18,15 +18,21 @@ real color, not a placeholder) was the safer tradeoff.
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Dict, Tuple
 
 from PyQt6.QtCore import QPointF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap, QPolygonF
 from PyQt6.QtWidgets import (
-    QGridLayout, QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget
+    QGridLayout, QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget,
+    QPushButton, QFileDialog, QInputDialog, QMessageBox
 )
 
 import object_catalog
+from mesh_io import describe_mesh_file
+
+logger = logging.getLogger(__name__)
 
 RGB = Tuple[float, float, float]
 
@@ -88,9 +94,22 @@ class ObjectPalette(QWidget):
         outer.setContentsMargins(6, 6, 6, 6)
         outer.setSpacing(6)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        outer.addWidget(self._scroll)
+
+        import_btn = QPushButton("Import Mesh File (.obj / .stl)…")
+        import_btn.setStyleSheet("color: #cfe3ff; padding: 6px;")
+        import_btn.clicked.connect(self._import_mesh)
+        outer.addWidget(import_btn)
+
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        """(Re)build the category grid from the current catalog - called on
+        construction and again after an import adds a new object kind, so
+        the new object shows up without restarting the app."""
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setSpacing(10)
@@ -116,8 +135,38 @@ class ObjectPalette(QWidget):
             content_layout.addLayout(grid)
 
         content_layout.addStretch(1)
-        scroll.setWidget(content)
-        outer.addWidget(scroll)
+        self._scroll.setWidget(content)
+
+    def _import_mesh(self) -> None:
+        """Let the user pick a mesh file and register it as a new,
+        permanently-available object kind. The imported mesh goes through
+        exactly the same pipeline as every built-in object (see
+        object_catalog.add_imported_object), so it gets real
+        geometry-derived mass/inertia and needs no special-casing."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Mesh", "", "Mesh files (*.obj *.stl);;All files (*)"
+        )
+        if not path:
+            return
+
+        default_name = Path(path).stem
+        name, ok = QInputDialog.getText(self, "Name this object", "Object name:", text=default_name)
+        if not ok or not name.strip():
+            return
+
+        try:
+            _, description = describe_mesh_file(path, normalize_size=1.0)
+            obj = object_catalog.add_imported_object(
+                kind=name, mesh_path=path, display_name=name.strip(), normalize_size=1.0
+            )
+        except Exception as exc:
+            logger.exception(f"Failed to import mesh from {path}")
+            QMessageBox.critical(self, "Import failed", f"Could not import that mesh:\n\n{exc}")
+            return
+
+        QMessageBox.information(self, "Mesh imported", f"{description}\n\nAdded as “{obj.display_name}”.")
+        self._rebuild()
+        self._choose(obj.kind)
 
     def _choose(self, kind: str) -> None:
         self.object_chosen.emit(kind)

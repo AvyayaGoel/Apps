@@ -8,15 +8,19 @@ and collision detection. Primitives are converted to meshes on creation.
 
 from __future__ import annotations
 
+import copy
 import itertools
-import math
+import logging
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 import numpy as np
 
-from math_utils import IDENTITY_QUAT, quat_integrate, quat_rotate_vector, vec3, quat_to_rotation_matrix
-from mesh import Mesh, create_box_mesh, create_sphere_mesh, create_cylinder_mesh, create_cone_mesh
+from geometry import Mesh
+from math_utils import IDENTITY_QUAT, quat_integrate, vec3, quat_to_rotation_matrix, fast_cross3
+from mesh import build_mesh_from_parts, get_mesh_by_kind, get_parts_recipe
+
+logger = logging.getLogger(__name__)
 
 SHAPE_SPHERE = "sphere"
 SHAPE_BOX = "box"
@@ -42,7 +46,13 @@ class RigidBody:
     angular_velocity: np.ndarray = field(default_factory=lambda: vec3())
     mass: float = 1.0
     density: float = 1.0  # mass per unit volume
-    scale: float = 1.0  # uniform scale factor
+    scale: np.ndarray = field(default_factory=lambda: vec3(1.0, 1.0, 1.0))  # per-axis (sx, sy, sz)
+    # Per-part scale overrides for composite (parts-recipe) objects, keyed
+    # by the part's index in object_catalog.get_parts(object_kind). Lets
+    # an individual placed instance resize one specific part (e.g. just
+    # this car's wheels) without affecting the shared catalog template or
+    # any other instance of the same kind - see set_part_scale().
+    part_scale_overrides: dict = field(default_factory=dict)
     restitution: float = 0.5
     friction: float = 0.5
     is_static: bool = False
@@ -51,13 +61,24 @@ class RigidBody:
     color: Tuple[float, float, float] = (0.7, 0.7, 0.7)
     object_kind: str = "shape"
     id: int = field(default_factory=lambda: next(_id_counter))
-    
+
     # Mesh-based geometry (lazy-initialized)
     _mesh: Optional[Mesh] = None
     _local_inertia_tensor: Optional[np.ndarray] = None
     _inv_local_inertia_tensor: Optional[np.ndarray] = None
-    
+    _cached_R: Optional[np.ndarray] = None
+    _cached_R_orientation: Optional[np.ndarray] = None
+
     def __post_init__(self) -> None:
+        # Accept a plain float (old save files / callers passing a single
+        # uniform scale factor) as well as a 3-vector, normalizing either
+        # into a proper (sx, sy, sz) array - every method below assumes
+        # self.scale is always a 3-element array.
+        if isinstance(self.scale, (int, float)):
+            s = float(self.scale)
+            self.scale = vec3(s, s, s)
+        else:
+            self.scale = np.asarray(self.scale, dtype=np.float64)
         self._update_inv_mass()
         self._update_mass_from_density()
         self._update_inertia_tensors()
@@ -67,31 +88,25 @@ class RigidBody:
     # ------------------------------------------------------------------
 
     def _volume(self) -> float:
-        """Compute volume based on shape and base shape_params (before scaling)."""
-        if self.shape == SHAPE_SPHERE:
-            r = self.shape_params.get("radius", 0.5)
-            return (4.0 / 3.0) * math.pi * r ** 3
-        elif self.shape == SHAPE_BOX:
-            hx, hy, hz = self.shape_params.get("half_extents", (0.4, 0.4, 0.4))
-            return (2 * hx) * (2 * hy) * (2 * hz)
-        elif self.shape == SHAPE_CYLINDER:
-            r = self.shape_params.get("radius", 0.4)
-            h = self.shape_params.get("height", 0.9)
-            return math.pi * r ** 2 * h
-        elif self.shape == SHAPE_CONE:
-            r = self.shape_params.get("radius", 0.5)
-            h = self.shape_params.get("height", 1.0)
-            return (1.0 / 3.0) * math.pi * r ** 2 * h
-        else:
-            return 1.0
+        """Unscaled base volume, derived from the actual mesh geometry -
+        generically, for ANY object kind (primitive or compound/custom),
+        rather than a per-shape analytic branch. This is what makes mass
+        correct for the car/mug/rocket etc: previously their physics
+        `shape` was a crude proxy (car="box", cup="cylinder") completely
+        disconnected from their visible geometry; now it's whatever
+        `self.mesh` actually is."""
+        return abs(self.mesh.compute_volume())
 
     def _update_mass_from_density(self) -> None:
-        """Compute mass = density * volume * scale^3."""
+        """Compute mass = density * volume * (sx*sy*sz) - the product of
+        the three axis scale factors is the volume-scaling factor for
+        anisotropic scaling, generalizing the old scale**3 (which was only
+        ever the sx=sy=sz special case)."""
         if self.is_static:
             self.mass = 0.0
             self.inv_mass = 0.0
             return
-        vol = self._volume() * (self.scale ** 3)
+        vol = self._volume() * float(np.prod(self.scale))
         self.mass = max(0.001, self.density * vol)
         self._update_inv_mass()
 
@@ -101,74 +116,141 @@ class RigidBody:
         else:
             self.inv_mass = 1.0 / self.mass
 
-    def set_scale(self, new_scale: float) -> None:
-        """Change scale and update mass accordingly."""
-        new_scale = max(0.01, new_scale)
-        self.scale = new_scale
-        # Invalidate cached mesh so it gets recreated at new scale
-        self._mesh = None
+    def set_scale(self, new_scale) -> None:
+        """Change scale and update mass/inertia accordingly. Accepts
+        either a single number (uniform resize on all 3 axes - the common
+        case, and what the property panel's main scale field uses) or a
+        (sx, sy, sz) sequence for independent per-axis resizing."""
+        if isinstance(new_scale, (int, float)):
+            s = max(0.01, float(new_scale))
+            self.scale = vec3(s, s, s)
+        else:
+            sx, sy, sz = new_scale
+            self.scale = vec3(max(0.01, sx), max(0.01, sy), max(0.01, sz))
+        self._update_mass_from_density()
+        self._update_inertia_tensors()
+
+    def set_part_scale(self, part_index: int, part_scale) -> None:
+        """Resize ONE part of a composite (parts-recipe) object, for this
+        specific instance only - the shared catalog template and every
+        other placed instance of the same kind are unaffected. Accepts a
+        single number (uniform on that part) or an (sx, sy, sz) sequence.
+
+        Only meaningful for object kinds with a "parts" recipe (car, cup,
+        rocket, ...) - for a bare primitive (a cube, a ball) there is only
+        one implicit "part", which is exactly what the whole-object
+        set_scale() already resizes, so this is a no-op for those kinds.
+        """
+        if isinstance(part_scale, (int, float)):
+            s = max(0.01, float(part_scale))
+            part_scale = (s, s, s)
+        else:
+            sx, sy, sz = part_scale
+            part_scale = (max(0.01, sx), max(0.01, sy), max(0.01, sz))
+
+        if part_scale == (1.0, 1.0, 1.0):
+            self.part_scale_overrides.pop(part_index, None)
+        else:
+            self.part_scale_overrides[part_index] = part_scale
+
+        self._mesh = None  # force a rebuild reflecting the new override
         self._update_mass_from_density()
         self._update_inertia_tensors()
 
     def set_mass(self, new_mass: float) -> None:
         """Change mass directly, keeping density consistent with the
         current volume (rather than leaving density stale after a direct
-        mass edit)."""
+        mass edit), and updating the inertia tensor to match."""
         new_mass = max(0.001, new_mass)
-        vol = self._volume() * (self.scale ** 3)
+        vol = self._volume() * float(np.prod(self.scale))
         if vol > 1e-9:
             self.density = new_mass / vol
         self.mass = new_mass
         self._update_inv_mass()
+        self._update_inertia_tensors()
 
     def set_density(self, new_density: float) -> None:
-        """Change density and update mass."""
+        """Change density and update mass (and the inertia tensor, which
+        depends on mass - previously left stale after a density edit)."""
         new_density = max(0.001, new_density)
         self.density = new_density
         self._update_mass_from_density()
+        self._update_inertia_tensors()
 
     # ------------------------------------------------------------------
     # Mesh-based geometry
     # ------------------------------------------------------------------
-    
+
     @property
     def mesh(self) -> Mesh:
         """Get the mesh for this body, creating it if necessary."""
         if self._mesh is None:
             self._mesh = self._create_mesh()
         return self._mesh
-    
+
     def _create_mesh(self) -> Mesh:
-        """Create a mesh from the shape and shape_params."""
-        if self.shape == SHAPE_BOX:
-            hx, hy, hz = self.shape_params.get("half_extents", (0.4, 0.4, 0.4))
-            return create_box_mesh((hx, hy, hz))
-        elif self.shape == SHAPE_SPHERE:
-            r = self.shape_params.get("radius", 0.5)
-            return create_sphere_mesh(r, subdivisions=3)
-        elif self.shape == SHAPE_CYLINDER:
-            r = self.shape_params.get("radius", 0.4)
-            h = self.shape_params.get("height", 0.9)
-            return create_cylinder_mesh(r, h, segments=24)
-        elif self.shape == SHAPE_CONE:
-            r = self.shape_params.get("radius", 0.5)
-            h = self.shape_params.get("height", 1.0)
-            return create_cone_mesh(r, h, segments=24)
-        else:
-            # Fallback to box
-            return create_box_mesh((0.4, 0.4, 0.4))
-    
+        """Create the mesh for this body.
+
+        Generic geometry pipeline (item 1/16 of the redesign): look the
+        object kind up in the mesh registry FIRST - this is the single
+        extension point for new geometry (a future user-created shape just
+        needs a builder registered under its kind, via
+        mesh.register_mesh_builder - nothing in this class needs to change
+        for that). Only when no registered mesh exists for this kind
+        (a bare primitive spawned directly by shape, e.g. from the physics
+        debug tools) do we fall back to building straight from
+        shape/shape_params.
+
+        If this specific instance has part_scale_overrides (see
+        set_part_scale), the shared cached mesh for this kind can't be
+        used as-is - this instance needs its own mesh built from a
+        modified copy of the kind's parts recipe with those specific
+        parts' scale multiplied by the override, so resizing one part on
+        one placed car doesn't affect the shared "car" template or any
+        other car in the scene.
+        """
+        if self.part_scale_overrides:
+            parts = get_parts_recipe(self.object_kind)
+            if parts:
+                parts = copy.deepcopy(parts)
+                for idx, override in self.part_scale_overrides.items():
+                    if 0 <= idx < len(parts):
+                        base = parts[idx].get("scale", 1.0)
+                        if isinstance(base, (int, float)):
+                            base = (base, base, base)
+                        parts[idx]["scale"] = tuple(b * o for b, o in zip(base, override))
+                return build_mesh_from_parts(parts)
+
+        registered = get_mesh_by_kind(self.object_kind)
+        if registered is not None:
+            return registered
+
+        # Nothing registered for this kind - fall back to the bare
+        # primitive named by self.shape, resolved through the SAME
+        # registry (the primitives are registered kinds too), so there is
+        # still no per-shape branching here. An unknown shape name yields
+        # an empty Mesh rather than a guessed substitute, which surfaces
+        # the problem instead of silently rendering the wrong thing.
+        primitive = get_mesh_by_kind(self.shape)
+        if primitive is not None:
+            return primitive
+        logger.warning(
+            f"No geometry registered for kind={self.object_kind!r} / shape={self.shape!r}; "
+            f"body {self.id} will have empty geometry"
+        )
+        return Mesh()
+
     def _update_inertia_tensors(self) -> None:
         """Update local and inverse local inertia tensors based on mesh geometry."""
         if self.is_static or self.mass <= 1e-9:
             self._local_inertia_tensor = np.eye(3, dtype=np.float64)
             self._inv_local_inertia_tensor = np.eye(3, dtype=np.float64)
             return
-        
-        # Get inertia tensor from mesh at current scale
-        scaled_mesh = self.mesh.scale(self.scale)
+
+        # Get inertia tensor from mesh at current (possibly anisotropic) scale
+        scaled_mesh = self.mesh.scale_nonuniform(self.scale)
         self._local_inertia_tensor = scaled_mesh.compute_inertia_tensor(self.mass)
-        
+
         # Compute inverse
         try:
             self._inv_local_inertia_tensor = np.linalg.inv(self._local_inertia_tensor)
@@ -177,15 +259,28 @@ class RigidBody:
             diag = np.diag(self._local_inertia_tensor)
             diag[diag < 1e-10] = 1e-10
             self._inv_local_inertia_tensor = np.diag(1.0 / diag)
-    
+
+    def get_rotation_matrix(self) -> np.ndarray:
+        """3x3 world-space rotation matrix for the body's current
+        orientation, cached and only recomputed when the orientation has
+        actually changed. quat_to_rotation_matrix showed up as a real,
+        measurable cost in a profiled physics step with many bodies -
+        every contact test for a body was recomputing the same matrix from
+        scratch, sometimes several times within a single substep (once per
+        pair the body is involved in)."""
+        if self._cached_R is None or not np.array_equal(self._cached_R_orientation, self.orientation):
+            self._cached_R = quat_to_rotation_matrix(self.orientation)
+            self._cached_R_orientation = self.orientation.copy()
+        return self._cached_R
+
     def get_world_inertia_tensor(self) -> np.ndarray:
         """Get inertia tensor in world coordinates."""
-        R = quat_to_rotation_matrix(self.orientation)
+        R = self.get_rotation_matrix()
         return R @ self._local_inertia_tensor @ R.T
-    
+
     def get_world_inv_inertia_tensor(self) -> np.ndarray:
         """Get inverse inertia tensor in world coordinates."""
-        R = quat_to_rotation_matrix(self.orientation)
+        R = self.get_rotation_matrix()
         return R @ self._inv_local_inertia_tensor @ R.T
 
     # ------------------------------------------------------------------
@@ -193,50 +288,81 @@ class RigidBody:
     # ------------------------------------------------------------------
 
     def bounding_radius(self) -> float:
-        base_radius = 0.5
-        if self.shape == SHAPE_SPHERE:
-            base_radius = self.shape_params.get("radius", 0.5)
-        elif self.shape == SHAPE_BOX:
-            hx, hy, hz = self.shape_params.get("half_extents", (0.4, 0.4, 0.4))
-            base_radius = float(np.linalg.norm([hx, hy, hz]))
-        elif self.shape == SHAPE_CYLINDER:
-            r = self.shape_params.get("radius", 0.4)
-            h = self.shape_params.get("height", 0.9)
-            base_radius = float(np.hypot(r, h * 0.5))
-        elif self.shape == SHAPE_CONE:
-            r = self.shape_params.get("radius", 0.5)
-            h = self.shape_params.get("height", 1.0)
-            base_radius = float(np.hypot(r, h * 0.5))
-        return base_radius * self.scale
+        """Radius of the smallest sphere (centered at the local origin)
+        guaranteed to contain the whole mesh, derived from actual mesh
+        vertex positions - generic for any shape, not a per-shape analytic
+        formula, and EXACT (not just an upper bound) for any mesh whose
+        vertices all lie on its true bounding sphere - e.g. every vertex
+        of create_sphere_mesh lies exactly on the sphere by construction,
+        so this returns the exact radius, matching what sphere-sphere
+        collision needs (an AABB-corner-distance upper bound would instead
+        overestimate a sphere's radius by a factor of up to sqrt(3))."""
+        if len(self.mesh.vertices) == 0:
+            lo, hi = self.mesh.bounds
+            corners = np.abs(np.stack([lo, hi])) * self.scale
+            return float(np.max(np.linalg.norm(corners, axis=1)))
+        scaled_verts = self.mesh.vertices * self.scale
+        return float(np.max(np.linalg.norm(scaled_verts, axis=1)))
+
+    def transformed_vertices(self) -> np.ndarray:
+        """The mesh's vertices actually transformed by this body's current
+        scale, orientation, and position - i.e. the real, current-frame
+        world-space geometry. This is what ground placement and AABB
+        computation must use to work for arbitrary rotation, arbitrary
+        scale, and arbitrary (including asymmetric/hollow/custom) geometry,
+        instead of an unscaled/unrotated shortcut like
+        `position.y - primitive_height / 2`, which is only even correct for
+        a symmetric primitive at identity orientation."""
+        verts = self.mesh.vertices * self.scale
+        R = self.get_rotation_matrix()
+        return verts @ R.T + self.position
 
     def aabb(self) -> Tuple[np.ndarray, np.ndarray]:
-        if self.shape == SHAPE_BOX:
-            he = self.get_scaled_half_extents()
-            corners = np.array([
-                [-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1],
-                [-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1],
-            ], dtype=np.float64) * he
-            vertices = np.array([quat_rotate_vector(self.orientation, c) + self.position for c in corners])
-            return vertices.min(axis=0), vertices.max(axis=0)
-        r = self.bounding_radius()
-        he = vec3(r, r, r)
-        return self.position - he, self.position + he
+        """World-space axis-aligned bounding box, computed from the actual
+        transformed mesh vertices - correct for arbitrary rotation, scale,
+        and asymmetric/hollow/custom geometry (not just boxes)."""
+        verts = self.transformed_vertices()
+        if len(verts) == 0:
+            r = self.bounding_radius()
+            he = vec3(r, r, r)
+            return self.position - he, self.position + he
+        return verts.min(axis=0), verts.max(axis=0)
 
     def bottom_y(self) -> float:
-        if self.shape == SHAPE_BOX:
-            return self.aabb()[0][1]
-        return self.position[1] - self.half_height()
+        """The lowest world-space Y coordinate of this body's actual
+        geometry at its current position/orientation/scale. Used for both
+        ground placement and the placement ghost (see place_on_ground) -
+        there is exactly one implementation of "how low does this object
+        currently reach", not a separate approximate one for previews."""
+        return float(self.aabb()[0][1])
+
+    def ground_clearance(self) -> float:
+        """How far above a ground plane at world Y=0 this body's origin
+        needs to sit for its lowest point to sit exactly on the ground, at
+        the body's CURRENT orientation and scale (independent of its
+        current position - translating a rigid mesh doesn't change the
+        distance from its origin to its own lowest point)."""
+        verts = self.mesh.vertices * self.scale
+        R = self.get_rotation_matrix()
+        local_lowest_y = float((verts @ R.T)[:, 1].min()) if len(verts) else 0.0
+        return -local_lowest_y
+
+    def place_on_ground(self, ground_y: float = 0.0) -> None:
+        """Set this body's Y position so its actual (transformed) geometry
+        rests exactly on a ground plane at ground_y, with zero penetration
+        and zero gap - correct for any rotation, scale, or mesh shape. The
+        placement ghost must call this exact same method (not a separate
+        approximation) so the preview and the real spawn always agree."""
+        self.position[1] = ground_y + self.ground_clearance()
 
     def half_height(self) -> float:
-        if self.shape == SHAPE_SPHERE:
-            return self.shape_params.get("radius", 0.5) * self.scale
-        if self.shape == SHAPE_BOX:
-            he = self.get_scaled_half_extents()
-            axes = [quat_rotate_vector(self.orientation, axis) for axis in np.eye(3)]
-            return float(sum(abs(axis[1]) * he[i] for i, axis in enumerate(axes)))
-        if self.shape in (SHAPE_CYLINDER, SHAPE_CONE):
-            return self.shape_params.get("height", 1.0) * 0.5 * self.scale
-        return self.bounding_radius()
+        """Half the world-space vertical extent of the transformed mesh -
+        kept for callers that want a single "how tall is this, roughly"
+        number; ground placement itself uses bottom_y()/place_on_ground(),
+        not this, so it stays correct even when the mesh isn't symmetric
+        about its own origin (e.g. a mug's floor sits above its base)."""
+        lo, hi = self.aabb()
+        return float((hi[1] - lo[1]) * 0.5)
 
     # ------------------------------------------------------------------
     # Integration
@@ -250,7 +376,7 @@ class RigidBody:
         self.wake()
         if contact_point is not None:
             r = contact_point - self.position
-            torque_impulse = np.cross(r, impulse)
+            torque_impulse = fast_cross3(r, impulse)
             # Use proper inertia tensor instead of sphere approximation
             inv_inertia_world = self.get_world_inv_inertia_tensor()
             delta_angular_velocity = inv_inertia_world @ torque_impulse
@@ -261,10 +387,27 @@ class RigidBody:
         self.sleep_timer = 0.0
 
     def set_static(self, static: bool) -> None:
+        """Switch this body between static (immovable, infinite effective
+        mass) and dynamic.
+
+        Must recompute the REAL mass from density*volume when turning a
+        body dynamic again, not just the derived inv_mass - _update_mass_
+        from_density() sets mass=0.0 as the static placeholder value, and
+        that 0.0 previously stuck around forever after unstaticizing (only
+        _update_inv_mass() was called, which just derives inv_mass from
+        whatever self.mass currently is). The body would then still be
+        affected by gravity in integrate() (which only checks is_static/
+        is_asleep, not mass), but ground/body contact resolution could
+        never push back against it (total inverse mass at the contact was
+        always exactly 0, so _apply_point_contact bailed out immediately) -
+        it would accelerate under gravity forever with nothing able to
+        stop it, i.e. fall straight through the ground."""
         self.is_static = static
-        self._update_inv_mass()
+        self._update_mass_from_density()
+        self._update_inertia_tensors()
         if static:
             self.velocity[:] = 0.0
+            self.angular_velocity[:] = 0.0
             self.angular_velocity[:] = 0.0
             self.is_asleep = False
         else:
@@ -299,13 +442,61 @@ class RigidBody:
     # ------------------------------------------------------------------
 
     def get_scaled_half_extents(self) -> np.ndarray:
-        if self.shape == SHAPE_BOX:
-            return np.array(self.shape_params.get("half_extents", (0.4, 0.4, 0.4))) * self.scale
-        return np.array([self.bounding_radius()] * 3)
+        """Half-extents of an oriented bounding box (OBB) in this body's own
+        local space, scaled - generic for ANY shape (not just SHAPE_BOX).
+        This is what lets the box-box/sphere-box collision routines in
+        collision.py serve as a simple, general "collision representation"
+        (per item 5 of the redesign: simple objects can have simple
+        collision reps) for compound/mesh objects like the car or mug too,
+        rather than falling back to an inaccurate bounding-sphere guess.
+        It is NOT a substitute for real convex/GJK collision on genuinely
+        non-box-like or concave geometry - just a much better default than
+        a sphere for a boxy shape like a car body."""
+        lo, hi = self.mesh.bounds
+        return (hi - lo) * 0.5 * self.scale
+
+    def get_obb_center_offset(self) -> np.ndarray:
+        """Local-space offset from this body's origin to the center of its
+        OBB (mesh.bounds midpoint), scaled. Zero for meshes centered on
+        their own origin (all current primitives); non-zero for a mesh
+        whose geometric center isn't at its local origin."""
+        lo, hi = self.mesh.bounds
+        return (hi + lo) * 0.5 * self.scale
 
     def get_scaled_radius(self) -> float:
-        if self.shape == SHAPE_SPHERE:
-            return self.shape_params.get("radius", 0.5) * self.scale
-        if self.shape in (SHAPE_CYLINDER, SHAPE_CONE):
-            return self.shape_params.get("radius", 0.4) * self.scale
+        """Radius of the tightest origin-centred sphere containing this
+        body's actual transformed geometry.
+
+        Derived purely from mesh vertices - no shape-name lookup, no
+        shape_params. For a sphere mesh this IS the exact radius (every
+        vertex lies on the sphere by construction); for anything else it's
+        the correct enclosing radius. That means it is equally meaningful
+        for a primitive, a composite, or an arbitrary imported mesh, which
+        the previous shape-name version was not: it silently returned a
+        stale shape_params radius that had nothing to do with the real
+        geometry for any object whose mesh wasn't literally that
+        primitive.
+        """
         return self.bounding_radius()
+
+    def is_sphere_like(self, tolerance: float = 0.02) -> bool:
+        """Whether this body's actual geometry is close enough to a sphere
+        for the exact analytic sphere-sphere collision path to be valid.
+
+        Measured from the mesh - every vertex roughly equidistant from the
+        centroid, under uniform scale - rather than asked of a shape name.
+        An imported ball, a procedurally generated sphere and a
+        high-polygon user blob all answer honestly; a body merely *named*
+        "sphere" whose mesh is something else does not get a wrong
+        fast-path applied to it.
+        """
+        if not (self.scale[0] == self.scale[1] == self.scale[2]):
+            return False  # non-uniform scale makes any sphere an ellipsoid
+        verts = self.mesh.vertices
+        if len(verts) < 4:
+            return False
+        radii = np.linalg.norm(verts - verts.mean(axis=0), axis=1)
+        mean_r = float(radii.mean())
+        if mean_r < 1e-9:
+            return False
+        return float(radii.std()) / mean_r < tolerance

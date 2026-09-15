@@ -77,6 +77,14 @@ class Scene:
         if self.place_object_kind is None:
             return None
         body = self.spawn(self.place_object_kind, position=position)
+        # The clicked position is a raw ground/surface hit point, not
+        # necessarily where this object's own lowest point should sit -
+        # rest the object's actual (mesh-derived) geometry on that surface
+        # exactly, using the SAME method the placement ghost uses (see
+        # renderer._draw_placement_ghost), so the ghost preview and the
+        # real spawn always agree and neither can end up partially
+        # underground.
+        body.place_on_ground(float(position[1]))
         self.select(body)
         return body
 

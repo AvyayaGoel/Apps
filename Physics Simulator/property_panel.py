@@ -114,19 +114,39 @@ class PropertyPanel(QWidget):
         phys_grid.addWidget(QLabel("Scale:"), 2, 0)
         phys_grid.addWidget(self.scale_spin, 2, 1)
 
+        # Per-axis scale: lets a placed object be resized non-uniformly
+        # (stretched/squashed along one axis) instead of only uniformly.
+        # Editing any of these three also updates the single "Scale" field
+        # above to reflect the X value, and vice versa - "Scale" is just a
+        # convenience for the common "resize everything together" case,
+        # not a separate concept from the per-axis values.
+        axis_row = QHBoxLayout()
+        axis_row.setSpacing(4)
+        self.scale_x_spin = self._make_spin(0.01, 20.0, 0.1, 3)
+        self.scale_y_spin = self._make_spin(0.01, 20.0, 0.1, 3)
+        self.scale_z_spin = self._make_spin(0.01, 20.0, 0.1, 3)
+        for label, spin in (("X", self.scale_x_spin), ("Y", self.scale_y_spin), ("Z", self.scale_z_spin)):
+            axis_row.addWidget(QLabel(label + ":"))
+            axis_row.addWidget(spin)
+        self.scale_x_spin.valueChanged.connect(self._on_axis_scale_changed)
+        self.scale_y_spin.valueChanged.connect(self._on_axis_scale_changed)
+        self.scale_z_spin.valueChanged.connect(self._on_axis_scale_changed)
+        phys_grid.addWidget(QLabel("Scale XYZ:"), 3, 0)
+        phys_grid.addLayout(axis_row, 3, 1)
+
         self.friction_spin = self._make_spin(0.0, 1.0, 0.05, 2)
         self.friction_spin.valueChanged.connect(self._on_friction_changed)
-        phys_grid.addWidget(QLabel("Friction:"), 3, 0)
-        phys_grid.addWidget(self.friction_spin, 3, 1)
+        phys_grid.addWidget(QLabel("Friction:"), 4, 0)
+        phys_grid.addWidget(self.friction_spin, 4, 1)
 
         self.restitution_spin = self._make_spin(0.0, 1.0, 0.05, 2)
         self.restitution_spin.valueChanged.connect(self._on_restitution_changed)
-        phys_grid.addWidget(QLabel("Restitution:"), 4, 0)
-        phys_grid.addWidget(self.restitution_spin, 4, 1)
+        phys_grid.addWidget(QLabel("Restitution:"), 5, 0)
+        phys_grid.addWidget(self.restitution_spin, 5, 1)
 
         self.static_cb = QCheckBox("Static")
         self.static_cb.toggled.connect(self._on_static_toggled)
-        phys_grid.addWidget(self.static_cb, 5, 0, 1, 2)
+        phys_grid.addWidget(self.static_cb, 6, 0, 1, 2)
 
         info_layout.addLayout(phys_grid)
 
@@ -374,7 +394,10 @@ class PropertyPanel(QWidget):
             self.kind_label.setText(f"{body.object_kind} ({body.shape})")
             self._blocked_set(self.mass_spin, body.mass)
             self._blocked_set(self.density_spin, body.density)
-            self._blocked_set(self.scale_spin, body.scale)
+            self._blocked_set(self.scale_spin, float(body.scale[0]))
+            self._blocked_set(self.scale_x_spin, float(body.scale[0]))
+            self._blocked_set(self.scale_y_spin, float(body.scale[1]))
+            self._blocked_set(self.scale_z_spin, float(body.scale[2]))
             self._blocked_set(self.friction_spin, body.friction)
             self._blocked_set(self.restitution_spin, body.restitution)
             self.static_cb.blockSignals(True)
@@ -498,7 +521,7 @@ class PropertyPanel(QWidget):
             return
         # Changing mass directly: adjust density to keep volume?
         # We'll allow direct mass change, but update density accordingly.
-        vol = self._current._volume() * (self._current.scale ** 3)
+        vol = self._current._volume() * float(np.prod(self._current.scale))
         if vol > 1e-9:
             self._current.density = value / vol
         self._current.mass = value
@@ -510,8 +533,23 @@ class PropertyPanel(QWidget):
             self._current.set_density(value)
 
     def _on_scale_changed(self, value):
+        """The single 'Scale' field resizes uniformly - update the X/Y/Z
+        fields to match so they don't show a stale, contradictory value."""
         if self._current is not None:
             self._current.set_scale(value)
+            for spin in (self.scale_x_spin, self.scale_y_spin, self.scale_z_spin):
+                self._blocked_set(spin, value)
+
+    def _on_axis_scale_changed(self, _value):
+        if self._current is None:
+            return
+        sx = self.scale_x_spin.value()
+        sy = self.scale_y_spin.value()
+        sz = self.scale_z_spin.value()
+        self._current.set_scale((sx, sy, sz))
+        # Keep the single "Scale" field showing something sensible (the X
+        # value) rather than stale, now that the axes may have diverged.
+        self._blocked_set(self.scale_spin, sx)
 
     def _on_static_toggled(self, checked):
         if self._current is None:

@@ -1,309 +1,61 @@
 """
-mesh.py - Mesh-first geometry system.
+mesh.py - procedural geometry generators and the data-driven object
+geometry pipeline.
 
-Provides a general Mesh representation with:
-- vertices, faces, normals
-- topology information
-- local-space bounds
-- closed/manifold validation
-- volume calculation
-- centroid calculation
-- inertia tensor calculation
+Layering (see geometry.py for why): this module imports downward from
+`geometry` (the shared Mesh core) and from `mesh_io` (file loading), and
+is itself imported by body.py / object_catalog.py / renderer.py. Every
+import is at the top of the file; there are no function-local imports
+anywhere in this project's geometry stack.
 
-All objects (car, mug, chair, table, rocket, user-created shapes, imported shapes)
-are represented as Mesh data. Primitive generators only generate Mesh data.
+The central idea is that this module knows about SHAPES, never about
+OBJECTS. There is no "car" code path, no "mug" code path, and no fixed
+list of supported objects anywhere below. Instead:
+
+  * `PART_SHAPE_BUILDERS` maps a shape name to a builder function. The
+    built-in entries (box, sphere, cylinder, cone, torus, wedge, disc,
+    annulus, file) are just the ones that ship by default -
+    `register_part_shape()` adds more at runtime, and a new shape needs
+    no edit to any dispatch logic.
+
+  * `build_mesh_from_parts()` turns a plain-data recipe (a list of
+    {shape, transform, ...} dicts) into one merged Mesh. This is how
+    every composite object in the catalog is defined - as data, not code.
+
+  * `register_parts_recipe()` / `register_mesh_builder()` associate an
+    object *kind* with geometry. object_catalog.py calls the former for
+    every entry in data/objects.json at load time; an importer or a
+    future in-app shape editor calls it for user-created geometry. This
+    module never reads the catalog itself, which is what keeps
+    object_catalog -> body -> mesh acyclic.
+
+The practical consequence: an arbitrary user-supplied shape - a JSON
+recipe they built, an OBJ they dragged in, or output from a generator
+that doesn't exist yet - flows through exactly the same path as a
+built-in cube. Nothing downstream (mass properties, collision, placement,
+rendering) can tell the difference, because there is no difference.
 """
-
 from __future__ import annotations
 
+import logging
 import math
-from dataclasses import dataclass, field
-from typing import List, Optional, Tuple, Dict, Any
+from typing import Callable, Dict, List, Optional, Tuple
+
 import numpy as np
 
-from math_utils import vec3, normalize
+from geometry import (
+    Mesh,
+    ensure_outward_winding,
+    flip_winding,
+    merge_meshes,
+    translate_mesh,
+    rotate_mesh_x,
+    rotate_mesh_y,
+    rotate_mesh_z,
+)
+from mesh_io import load_mesh_file
 
-
-@dataclass
-class Mesh:
-    """
-    A general mesh representation containing vertices, faces, normals,
-    and derived geometric properties.
-    """
-    vertices: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), dtype=np.float64))
-    faces: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), dtype=np.int32))
-    normals: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), dtype=np.float64))
-    material: Optional[Dict[str, Any]] = None
-    
-    # Cached properties
-    _bounds_min: Optional[np.ndarray] = None
-    _bounds_max: Optional[np.ndarray] = None
-    _volume: Optional[float] = None
-    _centroid: Optional[np.ndarray] = None
-    _inertia_tensor: Optional[np.ndarray] = None
-    _is_closed: Optional[bool] = None
-    
-    def __post_init__(self):
-        if len(self.vertices) > 0 and len(self.normals) == 0:
-            self.normals = self._compute_normals()
-    
-    def copy(self) -> Mesh:
-        """Create a deep copy of this mesh."""
-        return Mesh(
-            vertices=self.vertices.copy(),
-            faces=self.faces.copy(),
-            normals=self.normals.copy(),
-            material=self.material.copy() if self.material else None
-        )
-    
-    def _compute_normals(self) -> np.ndarray:
-        """Compute face normals from vertices and faces."""
-        if len(self.faces) == 0 or len(self.vertices) == 0:
-            return np.zeros((0, 3), dtype=np.float64)
-        
-        v0 = self.vertices[self.faces[:, 0]]
-        v1 = self.vertices[self.faces[:, 1]]
-        v2 = self.vertices[self.faces[:, 2]]
-        
-        edge1 = v1 - v0
-        edge2 = v2 - v0
-        face_normals = np.cross(edge1, edge2)
-        
-        # Normalize
-        lengths = np.linalg.norm(face_normals, axis=1, keepdims=True)
-        lengths[lengths < 1e-10] = 1.0
-        face_normals = face_normals / lengths
-        
-        # Compute vertex normals by averaging adjacent face normals
-        vertex_normals = np.zeros_like(self.vertices)
-        for i, face in enumerate(self.faces):
-            for j in range(3):
-                vertex_normals[face[j]] += face_normals[i]
-        
-        # Normalize vertex normals
-        lengths = np.linalg.norm(vertex_normals, axis=1, keepdims=True)
-        lengths[lengths < 1e-10] = 1.0
-        vertex_normals = vertex_normals / lengths
-        
-        return vertex_normals
-    
-    @property
-    def bounds(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Get local-space bounding box (min, max)."""
-        if self._bounds_min is None and len(self.vertices) > 0:
-            self._bounds_min = self.vertices.min(axis=0)
-            self._bounds_max = self.vertices.max(axis=0)
-        elif len(self.vertices) == 0:
-            return vec3(0, 0, 0), vec3(0, 0, 0)
-        return self._bounds_min, self._bounds_max
-    
-    @property
-    def is_closed(self) -> bool:
-        """Check if mesh is a closed manifold."""
-        if self._is_closed is not None:
-            return self._is_closed
-        
-        if len(self.faces) == 0:
-            self._is_closed = False
-            return False
-        
-        # Build edge frequency map
-        edge_count: Dict[Tuple[int, int], int] = {}
-        for face in self.faces:
-            for i in range(3):
-                e0, e1 = int(face[i]), int(face[(i + 1) % 3])
-                edge = (min(e0, e1), max(e0, e1))
-                edge_count[edge] = edge_count.get(edge, 0) + 1
-        
-        # In a closed manifold, each edge should appear exactly twice
-        self._is_closed = all(count == 2 for count in edge_count.values())
-        return self._is_closed
-    
-    def compute_volume(self) -> float:
-        """
-        Compute signed volume using divergence theorem.
-        For a closed mesh, volume = (1/6) * sum over faces of (v0 × v1) · v2
-        """
-        if self._volume is not None:
-            return self._volume
-        
-        if len(self.faces) == 0 or len(self.vertices) == 0:
-            self._volume = 0.0
-            return 0.0
-        
-        v0 = self.vertices[self.faces[:, 0]]
-        v1 = self.vertices[self.faces[:, 1]]
-        v2 = self.vertices[self.faces[:, 2]]
-        
-        # Signed volume contribution from each tetrahedron (origin, v0, v1, v2)
-        cross = np.cross(v1, v2)
-        dot_products = np.sum(v0 * cross, axis=1)
-        volume = np.sum(dot_products) / 6.0
-        
-        self._volume = abs(volume)
-        return self._volume
-    
-    def compute_centroid(self) -> np.ndarray:
-        """
-        Compute centroid (center of mass assuming uniform density).
-        Uses weighted average of face tetrahedra centroids.
-        """
-        if self._centroid is not None:
-            return self._centroid
-        
-        if len(self.faces) == 0 or len(self.vertices) == 0:
-            self._centroid = vec3(0, 0, 0)
-            return self._centroid
-        
-        v0 = self.vertices[self.faces[:, 0]]
-        v1 = self.vertices[self.faces[:, 1]]
-        v2 = self.vertices[self.faces[:, 2]]
-        
-        # Centroid of each tetrahedron (origin, v0, v1, v2)
-        tetra_centroids = (v0 + v1 + v2) / 4.0
-        
-        # Signed volume of each tetrahedron
-        cross = np.cross(v1, v2)
-        signed_volumes = np.sum(v0 * cross, axis=1) / 6.0
-        
-        total_volume = np.sum(np.abs(signed_volumes))
-        if total_volume < 1e-10:
-            self._centroid = vec3(0, 0, 0)
-            return self._centroid
-        
-        # Weighted average
-        self._centroid = np.sum(tetra_centroids * np.abs(signed_volumes).reshape(-1, 1), axis=0) / total_volume
-        return self._centroid
-    
-    def compute_inertia_tensor(self, mass: float = 1.0) -> np.ndarray:
-        """
-        Compute 3x3 inertia tensor in local coordinates.
-        Uses polyhedral formula for exact inertia of closed mesh.
-        
-        For uniform scaling s at constant density:
-        - volume scales as s³
-        - mass scales as s³  
-        - inertia scales as s⁵
-        """
-        if self._inertia_tensor is not None:
-            return self._inertia_tensor
-        
-        if len(self.faces) == 0 or len(self.vertices) == 0:
-            self._inertia_tensor = np.eye(3, dtype=np.float64)
-            return self._inertia_tensor
-        
-        volume = self.compute_volume()
-        if volume < 1e-10:
-            self._inertia_tensor = np.eye(3, dtype=np.float64)
-            return self._inertia_tensor
-        
-        # Density
-        density = mass / volume
-        
-        v0 = self.vertices[self.faces[:, 0]]
-        v1 = self.vertices[self.faces[:, 1]]
-        v2 = self.vertices[self.faces[:, 2]]
-        
-        # Compute inertia tensor using polyhedral formula
-        # Based on "Polyhedral Mass Properties" by Brian Mirtich
-        inertia = np.zeros((3, 3), dtype=np.float64)
-        
-        for i in range(len(self.faces)):
-            # Tetrahedron vertices
-            a = v0[i]
-            b = v1[i]
-            c = v2[i]
-            
-            # Cross products
-            b_cross_c = np.cross(b, c)
-            c_cross_a = np.cross(c, a)
-            a_cross_b = np.cross(a, b)
-            
-            # Face normal contribution
-            n = b_cross_c + c_cross_a + a_cross_b
-            
-            # Inertia integrals
-            # Using simplified formulas for tetrahedron with one vertex at origin
-            xa, ya, za = a
-            xb, yb, zb = b
-            xc, yc, zc = c
-            
-            # Compute tensor components
-            # These are the integrals over the tetrahedron
-            w = np.dot(a, b_cross_c) / 6.0  # signed volume
-            
-            if abs(w) < 1e-15:
-                continue
-            
-            # Inertia tensor components for this tetrahedron
-            # Simplified: treat as point mass at centroid for now
-            centroid = (a + b + c) / 4.0
-            x, y, z = centroid
-            
-            # Parallel axis theorem contribution
-            r_sq = x*x + y*y + z*z
-            m_tetra = density * abs(w)
-            
-            inertia[0, 0] += m_tetra * (r_sq - x*x)
-            inertia[1, 1] += m_tetra * (r_sq - y*y)
-            inertia[2, 2] += m_tetra * (r_sq - z*z)
-            inertia[0, 1] -= m_tetra * x * y
-            inertia[0, 2] -= m_tetra * x * z
-            inertia[1, 2] -= m_tetra * y * z
-        
-        # Symmetrize
-        inertia[1, 0] = inertia[0, 1]
-        inertia[2, 0] = inertia[0, 2]
-        inertia[2, 1] = inertia[1, 2]
-        
-        # Ensure positive definiteness
-        eigvals = np.linalg.eigvalsh(inertia)
-        if np.any(eigvals < 0):
-            inertia = inertia + np.eye(3) * (abs(min(eigvals)) + 0.001)
-        
-        self._inertia_tensor = inertia
-        return self._inertia_tensor
-    
-    def get_lowest_point(self) -> float:
-        """Get the lowest Y coordinate in local space."""
-        if len(self.vertices) == 0:
-            return 0.0
-        return float(self.vertices[:, 1].min())
-    
-    def scale(self, factor: float) -> Mesh:
-        """Return a new mesh scaled uniformly."""
-        if factor <= 0:
-            factor = 0.01
-        new_mesh = self.copy()
-        new_mesh.vertices *= factor
-        # Normals don't change with uniform scaling
-        new_mesh._volume = None  # Invalidate cache
-        new_mesh._centroid = None
-        new_mesh._inertia_tensor = None
-        new_mesh._bounds_min = None
-        new_mesh._bounds_max = None
-        return new_mesh
-    
-    def transform(self, position: np.ndarray, orientation: np.ndarray) -> np.ndarray:
-        """
-        Get transformed vertices in world space.
-        Returns array of shape (N, 3).
-        """
-        from math_utils import quat_rotate_vector
-        if len(self.vertices) == 0:
-            return np.zeros((0, 3), dtype=np.float64)
-        
-        transformed = np.array([quat_rotate_vector(orientation, v) + position 
-                               for v in self.vertices])
-        return transformed
-    
-    def get_world_lowest_point(self, position: np.ndarray, orientation: np.ndarray) -> float:
-        """Get the lowest Y coordinate in world space after transformation."""
-        transformed = self.transform(position, orientation)
-        if len(transformed) == 0:
-            return position[1]
-        return float(transformed[:, 1].min())
-
+logger = logging.getLogger(__name__)
 
 # ============================================================================
 # Primitive mesh generators
@@ -312,13 +64,13 @@ class Mesh:
 def create_box_mesh(half_extents: Tuple[float, float, float] = (0.5, 0.5, 0.5)) -> Mesh:
     """Generate a box mesh with given half-extents."""
     hx, hy, hz = half_extents
-    
+
     # 8 vertices
     vertices = np.array([
         [-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz],
         [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz],
     ], dtype=np.float64)
-    
+
     # 12 triangles (2 per face)
     faces = np.array([
         [0, 1, 2], [0, 2, 3],  # back
@@ -328,44 +80,44 @@ def create_box_mesh(half_extents: Tuple[float, float, float] = (0.5, 0.5, 0.5)) 
         [3, 2, 6], [3, 6, 7],  # top
         [4, 5, 1], [4, 1, 0],  # bottom
     ], dtype=np.int32)
-    
+
     mesh = Mesh(vertices=vertices, faces=faces)
-    return mesh
+    return ensure_outward_winding(mesh)
 
 
 def create_sphere_mesh(radius: float = 0.5, subdivisions: int = 3) -> Mesh:
     """Generate a sphere mesh using icosphere subdivision."""
     # Start with icosahedron
     phi = (1 + math.sqrt(5)) / 2
-    
+
     vertices = np.array([
         [-1, phi, 0], [1, phi, 0], [-1, -phi, 0], [1, -phi, 0],
         [0, -1, phi], [0, 1, phi], [0, -1, -phi], [0, 1, -phi],
         [phi, 0, -1], [phi, 0, 1], [-phi, 0, -1], [-phi, 0, 1],
     ], dtype=np.float64)
-    
+
     # Normalize to unit sphere
     vertices /= np.linalg.norm(vertices, axis=1, keepdims=True)
-    
+
     faces = np.array([
         [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
         [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
         [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
         [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
     ], dtype=np.int32)
-    
+
     # Subdivide
     for _ in range(subdivisions):
         new_faces = []
         edge_midpoints: Dict[Tuple[int, int], int] = {}
         new_vertices = list(vertices)
-        
+
         for face in faces:
             mid = []
             for i in range(3):
                 e0, e1 = int(face[i]), int(face[(i + 1) % 3])
                 edge = (min(e0, e1), max(e0, e1))
-                
+
                 if edge not in edge_midpoints:
                     v0 = new_vertices[e0]
                     v1 = new_vertices[e1]
@@ -373,34 +125,34 @@ def create_sphere_mesh(radius: float = 0.5, subdivisions: int = 3) -> Mesh:
                     midpoint /= np.linalg.norm(midpoint)
                     edge_midpoints[edge] = len(new_vertices)
                     new_vertices.append(midpoint)
-                
+
                 mid.append(edge_midpoints[edge])
-            
+
             # Create 4 new faces
             new_faces.append([face[0], mid[0], mid[2]])
             new_faces.append([face[1], mid[1], mid[0]])
             new_faces.append([face[2], mid[2], mid[1]])
             new_faces.append([mid[0], mid[1], mid[2]])
-        
+
         vertices = np.array(new_vertices, dtype=np.float64)
         faces = np.array(new_faces, dtype=np.int32)
-    
+
     # Scale to radius
     vertices *= radius
-    
+
     mesh = Mesh(vertices=vertices, faces=faces)
-    return mesh
+    return ensure_outward_winding(mesh)
 
 
-def create_cylinder_mesh(radius: float = 0.4, height: float = 0.9, 
-                         segments: int = 24, cap_top: bool = True, 
+def create_cylinder_mesh(radius: float = 0.4, height: float = 0.9,
+                         segments: int = 24, cap_top: bool = True,
                          cap_bottom: bool = True) -> Mesh:
     """Generate a cylinder mesh."""
     vertices = []
     faces = []
-    
+
     half_h = height / 2
-    
+
     # Side vertices: pairs of (bottom, top) for each segment
     for i in range(segments):
         theta = 2 * math.pi * i / segments
@@ -408,7 +160,7 @@ def create_cylinder_mesh(radius: float = 0.4, height: float = 0.9,
         z = radius * math.sin(theta)
         vertices.append([x, -half_h, z])  # bottom vertex (even index)
         vertices.append([x, half_h, z])   # top vertex (odd index)
-    
+
     # Side faces
     for i in range(segments):
         next_i = (i + 1) % segments
@@ -416,7 +168,7 @@ def create_cylinder_mesh(radius: float = 0.4, height: float = 0.9,
         next_base = next_i * 2
         faces.append([base, next_base, next_base + 1])
         faces.append([base, next_base + 1, base + 1])
-    
+
     # Top cap - uses odd-indexed vertices (1, 3, 5, ...)
     if cap_top:
         center_idx = len(vertices)
@@ -427,7 +179,7 @@ def create_cylinder_mesh(radius: float = 0.4, height: float = 0.9,
             v0 = 2 * i + 1
             v1 = 2 * next_i + 1
             faces.append([center_idx, v0, v1])
-    
+
     # Bottom cap - uses even-indexed vertices (0, 2, 4, ...)
     if cap_bottom:
         center_idx = len(vertices)
@@ -435,55 +187,127 @@ def create_cylinder_mesh(radius: float = 0.4, height: float = 0.9,
         for i in range(segments):
             next_i = (i + 1) % segments
             # Bottom ring vertices are at indices 0, 2, 4, ... = 2*i
+            # NOTE: order is (v1, v0, center) rather than (v0, v1, center).
+            # The top cap uses (center, v0, v1) walking the ring in
+            # increasing-theta order; a bottom cap facing the opposite way
+            # needs the *reversed* traversal order, or its winding ends up
+            # identical (in cyclic terms) to the top cap's instead of
+            # opposite. Getting this wrong doesn't show up in a naive
+            # undirected edge-count "is it closed" check - both caps still
+            # each individually look like a valid fan - it only shows up as
+            # a wrong (or exactly-cancelled) volume/inertia integral and
+            # inside-out face normals. See test_mesh.py::test_cylinder_volume.
             v0 = 2 * i
             v1 = 2 * next_i
-            faces.append([v0, v1, center_idx])
-    
+            faces.append([v1, v0, center_idx])
+
     vertices = np.array(vertices, dtype=np.float64)
     faces = np.array(faces, dtype=np.int32)
-    
+
     mesh = Mesh(vertices=vertices, faces=faces)
-    return mesh
+    return ensure_outward_winding(mesh)
 
 
-def create_cone_mesh(radius: float = 0.5, height: float = 1.0, 
-                     segments: int = 24) -> Mesh:
-    """Generate a cone mesh."""
+def create_wedge_mesh(half_extents: Tuple[float, float, float] = (1.0, 0.15, 1.0)) -> Mesh:
+    """
+    Generate a wedge/ramp mesh: a triangular prism with a right-triangle
+    cross-section (flat bottom, vertical back, sloped top from back-high
+    to front-low), extruded along X. This is a genuine new PRIMITIVE type
+    (alongside box/sphere/cylinder/cone/torus) rather than a one-off
+    "ramp" builder - any object needing a wedge-shaped part (a ramp, a
+    doorstop, a roof section, ...) can use it, so a physical ramp object
+    is just a single "wedge" part in a JSON recipe, not bespoke code (see
+    data/objects.json's "ramp" entry).
+
+    half_extents = (hx, hy, hz): hx is the half-length along the extrusion
+    axis (X), hy is the full height of the vertical back edge, hz is the
+    half-depth from the back edge to the front (lowest) edge.
+
+    Winding for every face verified numerically against the true outward
+    direction (see the wedge winding derivation in the redesign notes) -
+    each candidate ordering was checked by computing the winding-implied
+    normal and comparing it against the geometric outward direction from
+    the wedge's centroid, since guessing triangle vertex order by eye is
+    exactly how the pyramid and torus winding bugs happened in the first
+    place.
+    """
+    hx, hy, hz = half_extents
+    v0 = np.array([-hx, -hy, -hz])  # left,  bottom, back
+    v1 = np.array([-hx, hy, -hz])  # left,  top,    back
+    v2 = np.array([-hx, -hy, hz])  # left,  bottom, front
+    v3 = np.array([hx, -hy, -hz])  # right, bottom, back
+    v4 = np.array([hx, hy, -hz])  # right, top,    back
+    v5 = np.array([hx, -hy, hz])  # right, bottom, front
+    vertices = np.array([v0, v1, v2, v3, v4, v5], dtype=np.float64)
+    faces = np.array([
+        [0, 2, 1],  # left end cap (-X)
+        [3, 4, 5],  # right end cap (+X)
+        [0, 3, 5], [0, 5, 2],  # bottom (-Y)
+        [0, 1, 4], [0, 4, 3],  # back (-Z, vertical)
+        [2, 4, 1], [2, 5, 4],  # sloped top/front face
+    ], dtype=np.int32)
+    mesh = Mesh(vertices=vertices, faces=faces)
+    return ensure_outward_winding(mesh)
+
+
+def create_cone_mesh(radius: float = 0.5, height: float = 1.0,
+                     segments: int = 24, cap_base: bool = True) -> Mesh:
+    """Generate a cone mesh. cap_base=False omits the flat base disc, for
+    use as an open component (e.g. a nose cone welded directly onto a
+    cylinder's open top - if both the cylinder's top boundary *and* the
+    cone's own base cap were present, the shared ring would end up used by
+    3 faces instead of 2: manifold, but non-manifold in the strict sense
+    that only 2 faces may share an edge. ensure_outward_winding is skipped
+    when cap_base=False since the resulting open surface's "signed volume"
+    is not a reliable outward/inward indicator - see test_mesh.py)."""
     vertices = []
     faces = []
-    
+
     half_h = height / 2
-    
+
     # Apex vertex
     apex_idx = 0
     vertices.append([0, half_h, 0])
-    
+
     # Base ring vertices
     for i in range(segments):
         theta = 2 * math.pi * i / segments
         x = radius * math.cos(theta)
         z = radius * math.sin(theta)
         vertices.append([x, -half_h, z])
-    
+
     # Side faces (triangles from apex to base ring)
     # Winding order: base[i] -> base[i+1] -> apex for outward normals
     for i in range(segments):
         next_i = ((i + 1) % segments) + 1  # +1 because index 0 is apex
         faces.append([1 + i, next_i, apex_idx])
-    
-    # Base cap (disk)
-    base_center = len(vertices)
-    vertices.append([0, -half_h, 0])
-    # Winding order for bottom face: counter-clockwise when viewed from below
-    for i in range(segments):
-        next_i = ((i + 1) % segments) + 1
-        faces.append([1 + i, 1 + next_i, base_center])
-    
+
+    if cap_base:
+        # Base cap (disk)
+        base_center = len(vertices)
+        vertices.append([0, -half_h, 0])
+        # Winding order for bottom face: counter-clockwise when viewed from below.
+        # `next_i` must be the *ring* index (0..segments-1) - the "+1" ring-to-
+        # vertex offset is applied once, below, not baked into next_i itself.
+        # Applying it twice (as this used to) skips every other ring vertex,
+        # producing both a degenerate triangle and open boundary edges - even
+        # though the side faces alone looked fine. See test_mesh.py.
+        for i in range(segments):
+            next_i = (i + 1) % segments
+            # Reversed traversal order relative to the side faces above: the
+            # side faces walk (ring[i] -> ring[i+1]) with the apex (+Y) as the
+            # third vertex, so the base cap (-Y) needs the opposite traversal
+            # direction to be wound consistently with the sides (see the
+            # analogous cylinder cap-winding note above).
+            faces.append([1 + next_i, 1 + i, base_center])
+
     vertices = np.array(vertices, dtype=np.float64)
     faces = np.array(faces, dtype=np.int32)
-    
+
     mesh = Mesh(vertices=vertices, faces=faces)
-    return mesh
+    if not cap_base:
+        return mesh
+    return ensure_outward_winding(mesh)
 
 
 def create_torus_mesh(major_radius: float = 0.5, minor_radius: float = 0.15,
@@ -491,239 +315,379 @@ def create_torus_mesh(major_radius: float = 0.5, minor_radius: float = 0.15,
     """Generate a torus mesh."""
     vertices = []
     faces = []
-    
+
     for i in range(major_segments):
         theta = 2 * math.pi * i / major_segments
         cos_theta = math.cos(theta)
         sin_theta = math.sin(theta)
-        
+
         for j in range(minor_segments):
             phi = 2 * math.pi * j / minor_segments
             cos_phi = math.cos(phi)
             sin_phi = math.sin(phi)
-            
+
             x = (major_radius + minor_radius * cos_phi) * cos_theta
             y = minor_radius * sin_phi
             z = (major_radius + minor_radius * cos_phi) * sin_theta
-            
+
             vertices.append([x, y, z])
-    
+
     for i in range(major_segments):
         next_i = (i + 1) % major_segments
         for j in range(minor_segments):
             next_j = (j + 1) % minor_segments
-            
+
             v0 = i * minor_segments + j
             v1 = next_i * minor_segments + j
             v2 = next_i * minor_segments + next_j
             v3 = i * minor_segments + next_j
-            
+
             faces.append([v0, v1, v2])
             faces.append([v0, v2, v3])
-    
+
     vertices = np.array(vertices, dtype=np.float64)
     faces = np.array(faces, dtype=np.int32)
-    
+
     mesh = Mesh(vertices=vertices, faces=faces)
-    return mesh
+    return ensure_outward_winding(mesh)
+
+
+def create_disc_mesh(radius: float, segments: int = 24, normal_up: bool = True) -> Mesh:
+    """A flat filled disc (triangle fan) in the XZ plane at y=0, facing +Y
+    if normal_up else -Y. Used as a standalone cap - e.g. a hollow object's
+    solid base, or the interior floor of a mug - independent of any
+    particular cylinder."""
+    vertices = [[0.0, 0.0, 0.0]]
+    faces = []
+    for i in range(segments):
+        theta = 2 * math.pi * i / segments
+        vertices.append([radius * math.cos(theta), 0.0, radius * math.sin(theta)])
+    for i in range(segments):
+        cur = i + 1
+        nxt = (i + 1) % segments + 1
+        # (center, cur, nxt) with theta increasing from cur to nxt has its
+        # normal (via center->cur cross center->nxt) pointing -Y, not +Y -
+        # verified against known-good closed assemblies in test_mesh.py -
+        # so normal_up=True needs the reversed (center, nxt, cur) order.
+        if normal_up:
+            faces.append([0, nxt, cur])
+        else:
+            faces.append([0, cur, nxt])
+    vertices = np.array(vertices, dtype=np.float64)
+    faces = np.array(faces, dtype=np.int32)
+    return Mesh(vertices=vertices, faces=faces)
+
+
+def create_annulus_mesh(outer_radius: float, inner_radius: float, segments: int = 24,
+                        normal_up: bool = True) -> Mesh:
+    """A flat ring (annulus) connecting an inner and outer circle in the XZ
+    plane at y=0 - used to close the gap between a hollow object's outer
+    and inner walls (e.g. a mug's rim) with an actual watertight connecting
+    surface rather than leaving an open ring."""
+    vertices = []
+    faces = []
+    for i in range(segments):
+        theta = 2 * math.pi * i / segments
+        c, s = math.cos(theta), math.sin(theta)
+        vertices.append([outer_radius * c, 0.0, outer_radius * s])  # 2*i
+        vertices.append([inner_radius * c, 0.0, inner_radius * s])  # 2*i+1
+    for i in range(segments):
+        next_i = (i + 1) % segments
+        o0, i0 = 2 * i, 2 * i + 1
+        o1, i1 = 2 * next_i, 2 * next_i + 1
+        # As with create_disc_mesh, the naive (o0,o1,i1)/(o0,i1,i0) order
+        # actually points -Y, not +Y - verified against known-good closed
+        # assemblies in test_mesh.py.
+        if normal_up:
+            faces.append([o0, i1, o1])
+            faces.append([o0, i0, i1])
+        else:
+            faces.append([o0, o1, i1])
+            faces.append([o0, i1, i0])
+    vertices = np.array(vertices, dtype=np.float64)
+    faces = np.array(faces, dtype=np.int32)
+    return Mesh(vertices=vertices, faces=faces)
+
+
 
 
 # ============================================================================
-# Complex object builders
+# Part shape registry
 # ============================================================================
+#
+# A part's "shape" is looked up here rather than matched against a chain of
+# hardcoded names. Adding a shape - including one a user or a future
+# geometry editor invents - is a registration, not an edit to a dispatch
+# branch, so no code anywhere has to enumerate "the shapes we support".
+#
+# A builder takes the part dict and returns a Mesh. It reads whatever
+# parameters it cares about straight from that dict, so shapes can have
+# completely different parameter sets without any shared schema.
 
-def create_car_mesh() -> Mesh:
-    """
-    Generate a car mesh with correctly oriented upright wheels.
-    Body + cabin + 4 wheels as a single merged mesh.
-    """
-    meshes_to_merge = []
-    
-    # Car body (box)
-    body = create_box_mesh(half_extents=(0.8, 0.3, 0.45))
-    meshes_to_merge.append(body)
-    
-    # Cabin (smaller box on top)
-    cabin = create_box_mesh(half_extents=(0.35, 0.22, 0.38))
-    # Translate cabin up and slightly back
-    cabin.vertices[:, 1] += 0.32
-    cabin.vertices[:, 0] -= 0.1
-    meshes_to_merge.append(cabin)
-    
-    # Wheels (cylinders rotated 90 degrees around Y to be upright)
-    wheel_positions = [
-        (-0.55, -0.28, 0.52),   # front-left
-        (0.55, -0.28, 0.52),    # front-right
-        (-0.55, -0.28, -0.52),  # rear-left
-        (0.55, -0.28, -0.52),   # rear-right
-    ]
-    
-    for wx, wy, wz in wheel_positions:
-        wheel = create_cylinder_mesh(radius=0.22, height=0.15, segments=16)
-        # Rotate 90 degrees around Y axis (wheel faces Z direction)
-        # Cylinder is initially Y-aligned, we want it X-aligned
-        angle = math.pi / 2
-        cos_a, sin_a = math.cos(angle), math.sin(angle)
-        
-        # Rotate vertices
-        new_verts = wheel.vertices.copy()
-        # Swap X and Z, negate one for proper orientation
-        new_verts[:, 0] = wheel.vertices[:, 2] * cos_a - wheel.vertices[:, 0] * sin_a
-        new_verts[:, 2] = wheel.vertices[:, 2] * sin_a + wheel.vertices[:, 0] * cos_a
-        
-        # Translate to wheel position
-        new_verts[:, 0] += wx
-        new_verts[:, 1] += wy
-        new_verts[:, 2] += wz
-        
-        wheel.vertices = new_verts
-        meshes_to_merge.append(wheel)
-    
-    return merge_meshes(meshes_to_merge)
+PartShapeBuilder = Callable[[dict], Mesh]
 
 
-def create_cup_mesh() -> Mesh:
-    """
-    Generate a cup/mug mesh with properly shaped body and vertically oriented handle.
-    Thin-walled cylinder, open top, with a handle on the side.
-    """
-    meshes_to_merge = []
-    
-    radius = 0.3
-    height = 0.5
-    thickness = 0.03
-    
-    # Outer wall (cylinder without top cap - open)
-    outer = create_cylinder_mesh(radius=radius, height=height, segments=24, 
-                                  cap_top=False, cap_bottom=True)
-    meshes_to_merge.append(outer)
-    
-    # Inner wall (smaller cylinder, inverted normals for inside surface)
-    inner_radius = radius - thickness
-    inner = create_cylinder_mesh(radius=inner_radius, height=height, segments=24,
-                                  cap_top=False, cap_bottom=True)
-    # Flip normals for inner surface
-    inner.normals = -inner.normals
-    meshes_to_merge.append(inner)
-    
-    # Rim (torus at top)
-    rim = create_torus_mesh(major_radius=radius - thickness * 0.5, 
-                            minor_radius=thickness * 1.5,
-                            major_segments=32, minor_segments=8)
-    # Position at top
-    rim.vertices[:, 1] += height / 2
-    meshes_to_merge.append(rim)
-    
-    # Handle (torus on the side, vertically oriented)
-    handle_major = 0.12
-    handle_minor = 0.035
-    handle = create_torus_mesh(major_radius=handle_major, minor_radius=handle_minor,
-                                major_segments=24, minor_segments=12)
-    # Rotate handle to be vertical (rotate 90 deg around Z)
-    verts = handle.vertices.copy()
-    temp = verts[:, 1].copy()
-    verts[:, 1] = verts[:, 2]
-    verts[:, 2] = -temp
-    # Position on side of cup
-    verts[:, 0] += radius + 0.02
-    verts[:, 1] += 0.0  # Centered vertically
-    handle.vertices = verts
-    meshes_to_merge.append(handle)
-    
-    return merge_meshes(meshes_to_merge)
+def _build_box_part(part: dict) -> Mesh:
+    return create_box_mesh(tuple(part.get("half_extents", (0.4, 0.4, 0.4))))
 
 
-def create_rocket_mesh() -> Mesh:
-    """Generate a rocket mesh with body, nose cone, and fins."""
-    meshes_to_merge = []
-    
-    body_radius = 0.25
-    body_height = 0.8
-    
-    # Main body (cylinder)
-    body = create_cylinder_mesh(radius=body_radius, height=body_height, segments=24)
-    meshes_to_merge.append(body)
-    
-    # Nose cone (cone on top)
-    nose = create_cone_mesh(radius=body_radius, height=0.4, segments=24)
-    nose.vertices[:, 1] += body_height / 2 + 0.2  # Position on top
-    meshes_to_merge.append(nose)
-    
-    # Fins (4 triangular fins at bottom)
-    fin_positions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
-    for dx, dz in fin_positions:
-        # Simple fin as thin box
-        fin = create_box_mesh(half_extents=(0.02, 0.15, 0.2))
-        # Position and rotate
-        fin.vertices[:, 0] *= dx
-        fin.vertices[:, 2] *= dz
-        fin.vertices[:, 0] += dx * (body_radius + 0.1)
-        fin.vertices[:, 2] += dz * (body_radius + 0.1)
-        fin.vertices[:, 1] -= body_height / 2 - 0.075
-        meshes_to_merge.append(fin)
-    
-    return merge_meshes(meshes_to_merge)
+def _build_sphere_part(part: dict) -> Mesh:
+    return create_sphere_mesh(part.get("radius", 0.5),
+                              subdivisions=part.get("subdivisions", 3))
 
 
-def merge_meshes(mesh_list: List[Mesh]) -> Mesh:
-    """Merge multiple meshes into a single mesh."""
-    if not mesh_list:
-        return Mesh()
-    
-    if len(mesh_list) == 1:
-        return mesh_list[0].copy()
-    
-    total_vertices = sum(len(m.vertices) for m in mesh_list)
-    total_faces = sum(len(m.faces) for m in mesh_list)
-    
-    vertices = np.zeros((total_vertices, 3), dtype=np.float64)
-    faces = np.zeros((total_faces, 3), dtype=np.int32)
-    normals = np.zeros((total_vertices, 3), dtype=np.float64)
-    
-    vertex_offset = 0
-    face_offset = 0
-    
-    for mesh in mesh_list:
-        v_count = len(mesh.vertices)
-        f_count = len(mesh.faces)
-        
-        vertices[vertex_offset:vertex_offset + v_count] = mesh.vertices
-        if len(mesh.normals) == v_count:
-            normals[vertex_offset:vertex_offset + v_count] = mesh.normals
-        
-        # Offset face indices
-        faces[face_offset:face_offset + f_count] = mesh.faces + vertex_offset
-        
-        vertex_offset += v_count
-        face_offset += f_count
-    
-    merged = Mesh(vertices=vertices, faces=faces, normals=normals)
-    return merged
+def _build_cylinder_part(part: dict) -> Mesh:
+    return create_cylinder_mesh(part.get("radius", 0.4), part.get("height", 0.9),
+                                segments=part.get("segments", 24),
+                                cap_top=part.get("cap_top", True),
+                                cap_bottom=part.get("cap_bottom", True))
 
 
-# ============================================================================
-# Mesh registry for object kinds
-# ============================================================================
+def _build_cone_part(part: dict) -> Mesh:
+    return create_cone_mesh(part.get("radius", 0.5), part.get("height", 1.0),
+                            segments=part.get("segments", 24),
+                            cap_base=part.get("cap_base", True))
 
-_MESH_REGISTRY: Dict[str, callable] = {
-    'box': lambda: create_box_mesh((0.4, 0.4, 0.4)),
-    'sphere': lambda: create_sphere_mesh(0.5),
-    'cylinder': lambda: create_cylinder_mesh(0.4, 0.9),
-    'cone': lambda: create_cone_mesh(0.5, 1.0),
-    'torus': lambda: create_torus_mesh(0.5, 0.18),
-    'car': create_car_mesh,
-    'cup': create_cup_mesh,
-    'rocket': create_rocket_mesh,
+
+def _build_torus_part(part: dict) -> Mesh:
+    return create_torus_mesh(part.get("radius", 0.5), part.get("tube_radius", 0.18),
+                             major_segments=part.get("rings", 32),
+                             minor_segments=part.get("sides", 12))
+
+
+def _build_wedge_part(part: dict) -> Mesh:
+    return create_wedge_mesh(tuple(part.get("half_extents", (1.0, 0.15, 1.0))))
+
+
+def _build_disc_part(part: dict) -> Mesh:
+    return create_disc_mesh(part.get("radius", 0.5), segments=part.get("segments", 24),
+                            normal_up=part.get("normal_up", True))
+
+
+def _build_annulus_part(part: dict) -> Mesh:
+    return create_annulus_mesh(part.get("radius", 0.5), part.get("inner_radius", 0.3),
+                               segments=part.get("segments", 24),
+                               normal_up=part.get("normal_up", True))
+
+
+def _build_file_part(part: dict) -> Mesh:
+    """An imported OBJ/STL used as a part, exactly like any primitive - it
+    gets the same transform/color treatment, can be mixed with primitive
+    parts in one object, and is indistinguishable downstream."""
+    return load_mesh_file(
+        part["path"],
+        recenter=part.get("recenter", True),
+        normalize_size=part.get("normalize_size"),
+    )
+
+
+PART_SHAPE_BUILDERS: Dict[str, PartShapeBuilder] = {
+    "box": _build_box_part,
+    "sphere": _build_sphere_part,
+    "cylinder": _build_cylinder_part,
+    "cone": _build_cone_part,
+    "torus": _build_torus_part,
+    "wedge": _build_wedge_part,
+    "disc": _build_disc_part,
+    "annulus": _build_annulus_part,
+    "file": _build_file_part,
 }
 
 
+def register_part_shape(name: str, builder: PartShapeBuilder) -> None:
+    """Register a new part shape usable in any recipe from then on.
+
+    This is the extension point for geometry types that don't exist yet -
+    a curve/loft generator, a voxel mesher, a parametric surface, an
+    importer for another file format. The recipe interpreter, the mass
+    property code, collision, placement and the renderer all require no
+    changes, because none of them enumerate shapes.
+    """
+    PART_SHAPE_BUILDERS[name] = builder
+
+
+def available_part_shapes() -> List[str]:
+    return sorted(PART_SHAPE_BUILDERS)
+
+
+def _apply_part_color(mesh_obj: Mesh, color) -> Mesh:
+    out = mesh_obj.copy()
+    out.colors = np.tile(np.asarray(color, dtype=np.float64), (len(out.vertices), 1))
+    return out
+
+
+def _apply_part_scale(mesh_obj: Mesh, scale) -> Mesh:
+    if isinstance(scale, (int, float)):
+        return mesh_obj if float(scale) == 1.0 else mesh_obj.scale(float(scale))
+    return mesh_obj.scale_nonuniform(np.asarray(scale, dtype=np.float64))
+
+
+def build_mesh_from_parts(parts: List[dict]) -> Mesh:
+    """
+    Build a single merged Mesh from a data-only recipe: a list of parts,
+    each a shape plus a transform. This is the generic replacement for
+    writing a bespoke Python function per composite object - adding an
+    object means adding data, never code.
+
+    Each part is a dict:
+        shape:          any key in PART_SHAPE_BUILDERS (extensible - see
+                        register_part_shape); shape-specific parameters
+                        live alongside it in the same dict
+        offset:         [x, y, z]              (default [0,0,0])
+        rotation_deg:   [rx, ry, rz]           (default [0,0,0], X then Y then Z)
+        scale:          number or [sx, sy, sz] (default 1.0)
+        flip_winding:   bool  - face the surface inward, e.g. the inner
+                        wall of a hollow shell
+        color:          [r, g, b] - per-part color override baked into the
+                        mesh's vertex colors, so one object can have parts
+                        of different colors without extra draw calls
+
+    A part whose shape isn't registered is skipped with a warning rather
+    than aborting the whole object, so one bad entry in a large
+    user-authored recipe degrades gracefully instead of losing everything.
+    """
+    built: List[Mesh] = []
+    for part in parts:
+        shape = part.get("shape")
+        builder = PART_SHAPE_BUILDERS.get(shape)
+        if builder is None:
+            logger.warning(
+                f"build_mesh_from_parts: unknown part shape {shape!r} - skipping. "
+                f"Known shapes: {', '.join(available_part_shapes())}"
+            )
+            continue
+        try:
+            piece = builder(part)
+        except Exception:
+            logger.exception(f"build_mesh_from_parts: failed to build part {part!r} - skipping")
+            continue
+
+        if part.get("flip_winding"):
+            piece = flip_winding(piece)
+
+        color = part.get("color")
+        if color is not None:
+            piece = _apply_part_color(piece, color)
+
+        scale = part.get("scale", 1.0)
+        if scale is not None:
+            piece = _apply_part_scale(piece, scale)
+
+        rot = part.get("rotation_deg")
+        if rot:
+            rx, ry, rz = rot
+            if rx:
+                piece = rotate_mesh_x(piece, math.radians(rx))
+            if ry:
+                piece = rotate_mesh_y(piece, math.radians(ry))
+            if rz:
+                piece = rotate_mesh_z(piece, math.radians(rz))
+
+        offset = part.get("offset")
+        if offset:
+            piece = translate_mesh(piece, tuple(offset))
+
+        built.append(piece)
+
+    if not built:
+        logger.warning("build_mesh_from_parts: recipe produced no usable geometry")
+        return Mesh()
+    return merge_meshes(built)
+
+
+# ============================================================================
+# Object-kind geometry registry
+# ============================================================================
+#
+# Maps an object KIND (a name like "car", or whatever a user names their
+# imported shape) to the geometry for it. Two ways to register:
+#
+#   register_parts_recipe(kind, parts)  - data recipe; this is what
+#       object_catalog.py calls for every entry in data/objects.json, and
+#       what an import or in-app editor calls for user-created objects.
+#
+#   register_mesh_builder(kind, fn)     - a callable returning a Mesh, for
+#       geometry that isn't expressible as a parts recipe.
+#
+# This module never reads the catalog itself. That inversion is what keeps
+# the import graph acyclic (object_catalog -> body -> mesh, with nothing
+# pointing back), and it means geometry can be registered by anything -
+# including code that doesn't exist yet - without this file knowing.
+
+_MESH_BUILDERS: Dict[str, Callable[[], Mesh]] = {}
+_PARTS_RECIPES: Dict[str, List[dict]] = {}
+_mesh_kind_cache: Dict[str, Mesh] = {}
+
+
+def register_parts_recipe(kind: str, parts: List[dict]) -> None:
+    """Associate an object kind with a data-only parts recipe."""
+    _PARTS_RECIPES[kind] = parts
+    _mesh_kind_cache.pop(kind, None)
+
+
+def register_mesh_builder(kind: str, builder: Callable[[], Mesh]) -> None:
+    """Associate an object kind with a Python builder returning a Mesh."""
+    _MESH_BUILDERS[kind] = builder
+    _mesh_kind_cache.pop(kind, None)
+
+
+def get_parts_recipe(kind: str) -> Optional[List[dict]]:
+    """The registered recipe for a kind, if it has one. Used by body.py to
+    apply per-instance part overrides without importing the catalog."""
+    return _PARTS_RECIPES.get(kind)
+
+
 def get_mesh_by_kind(kind: str) -> Optional[Mesh]:
-    """Get a mesh by object kind name."""
-    if kind in _MESH_REGISTRY:
-        return _MESH_REGISTRY[kind]()
+    """Geometry for an object kind, or None if nothing is registered (the
+    caller then falls back to a bare primitive from its own shape params).
+
+    Cached: builders and recipes are deterministic, so without this every
+    spawn would re-tessellate and re-weld identical geometry (measured at
+    several ms per spawn for a detailed object). The cache holds one
+    shared immutable Mesh per kind - safe because nothing downstream
+    mutates a Mesh in place; every transform helper returns a new one.
+    """
+    cached = _mesh_kind_cache.get(kind)
+    if cached is not None:
+        return cached
+
+    builder = _MESH_BUILDERS.get(kind)
+    if builder is not None:
+        built = builder()
+        _mesh_kind_cache[kind] = built
+        return built
+
+    parts = _PARTS_RECIPES.get(kind)
+    if parts:
+        built = build_mesh_from_parts(parts)
+        _mesh_kind_cache[kind] = built
+        return built
+
     return None
 
 
-def register_mesh_builder(kind: str, builder: callable) -> None:
-    """Register a custom mesh builder for a new object kind."""
-    _MESH_REGISTRY[kind] = builder
+def invalidate_mesh_cache(kind: Optional[str] = None) -> None:
+    """Drop cached geometry so it rebuilds on next access - call after
+    editing a recipe (e.g. from an in-app editor) so changes take effect."""
+    if kind is None:
+        _mesh_kind_cache.clear()
+    else:
+        _mesh_kind_cache.pop(kind, None)
+
+
+def registered_kinds() -> List[str]:
+    return sorted(set(_MESH_BUILDERS) | set(_PARTS_RECIPES))
+
+
+# Bare primitives are registered as ordinary kinds so that a body spawned
+# with shape="sphere" and no catalog entry still resolves through the same
+# single path as everything else.
+for _name, _factory in (
+        ("box", lambda: create_box_mesh((0.4, 0.4, 0.4))),
+        ("sphere", lambda: create_sphere_mesh(0.5)),
+        ("cylinder", lambda: create_cylinder_mesh(0.4, 0.9)),
+        ("cone", lambda: create_cone_mesh(0.5, 1.0)),
+        ("torus", lambda: create_torus_mesh(0.5, 0.18)),
+        ("wedge", lambda: create_wedge_mesh((1.0, 0.15, 1.0))),
+):
+    register_mesh_builder(_name, _factory)

@@ -1,0 +1,182 @@
+2026-09-15 20:39:36,716 - world - INFO - Added body 1 (sphere)
+2026-09-15 20:39:36,716 - scene - INFO - Spawned sphere at (-1.0, 4.0, 0.0)
+2026-09-15 20:39:36,721 - world - INFO - Added body 2 (sphere)
+2026-09-15 20:39:36,721 - scene - INFO - Spawned sphere at (1.2, 6.0, -0.5)
+2026-09-15 20:39:36,722 - world - INFO - Added body 3 (cube)
+2026-09-15 20:39:36,722 - scene - INFO - Spawned cube at (0.0, 8.0, 1.0)
+2026-09-15 20:39:36,726 - world - INFO - Added body 4 (ball)
+2026-09-15 20:39:36,726 - scene - INFO - Spawned ball at (-2.0, 3.0, 1.5)
+2026-09-15 20:39:36,726 - world - INFO - Added body 5 (wall)
+2026-09-15 20:39:36,726 - scene - INFO - Spawned wall at (4.0, 1.0, 0.0)
+2026-09-15 20:39:36,726 - world - INFO - Added body 6 (floor_tile)
+2026-09-15 20:39:36,726 - scene - INFO - Spawned floor_tile at (0.0, 0.5, 4.0)
+2026-09-15 20:39:49,959 - scene - INFO - Selected body 5
+2026-09-15 20:40:15,499 - scene - INFO - Selected body 6
+2026-09-15 20:40:22,313 - scene - INFO - Selected body 6
+2026-09-15 20:40:48,739 - scene - INFO - Selected body 6
+2026-09-15 20:40:49,425 - scene - INFO - Selected body 6
+2026-09-15 20:40:50,129 - scene - INFO - Selected body 6
+2026-09-15 20:40:52,987 - scene - INFO - Selected body 6
+2026-09-15 20:40:53,579 - scene - INFO - Selected body 6
+2026-09-15 20:41:00,703 - scene - INFO - Selected body 5
+2026-09-15 20:41:16,219 - scene - INFO - Selected body 6
+2026-09-15 20:41:30,625 - world - INFO - Added body 23 (sphere)
+2026-09-15 20:41:30,661 - scene - INFO - Spawned sphere at [-3.47144578  0.          1.82614382]
+2026-09-15 20:41:30,662 - scene - INFO - Selected body 23
+2026-09-15 20:41:49,017 - world - INFO - Added body 535 (sphere)
+2026-09-15 20:41:49,018 - scene - INFO - Spawned sphere at [-2.83095628  0.          3.07774066]
+2026-09-15 20:41:49,018 - scene - INFO - Selected body 535
+2026-09-15 20:41:58,569 - world - INFO - Added body 766 (book)
+2026-09-15 20:41:58,570 - scene - INFO - Spawned book at [-2.26639915e+00 -2.22044605e-16  3.54595338e+00]
+2026-09-15 20:41:58,571 - scene - INFO - Selected body 766
+2026-09-15 20:42:15,728 - world - INFO - Added body 1159 (puck)
+2026-09-15 20:42:15,728 - scene - INFO - Spawned puck at [-4.17319273  0.          5.03015019]
+2026-09-15 20:42:15,729 - scene - INFO - Selected body 1159
+2026-09-15 20:42:24,032 - world - INFO - Added body 1344 (pipe)
+2026-09-15 20:42:24,032 - scene - INFO - Spawned pipe at [-1.77121488  0.          2.60403574]
+2026-09-15 20:42:24,033 - scene - INFO - Selected body 1344
+2026-09-15 20:42:31,852 - world - INFO - Added body 1552 (torus)
+2026-09-15 20:42:31,852 - scene - INFO - Spawned torus at [-0.5725908   0.          0.83609111]
+2026-09-15 20:42:31,853 - scene - INFO - Selected body 1552
+2026-09-15 20:42:38,620 - world - INFO - Added body 1849 (cylinder)
+2026-09-15 20:42:38,620 - scene - INFO - Spawned cylinder at [ 0.15597631  0.         -0.10122911]
+2026-09-15 20:42:38,621 - scene - INFO - Selected body 1849
+2026-09-15 20:43:10,437 - world - INFO - Added body 3261 (cylinder)
+2026-09-15 20:43:10,437 - scene - INFO - Spawned cylinder at [1.82751697 0.         9.78474342]
+2026-09-15 20:43:10,438 - scene - INFO - Selected body 3261
+2026-09-15 20:43:15,184 - world - INFO - Added body 3461 (cylinder)
+2026-09-15 20:43:15,184 - scene - INFO - Spawned cylinder at [-0.02716775  0.          3.18194208]
+2026-09-15 20:43:15,184 - scene - INFO - Selected body 3461
+2026-09-15 20:43:16,546 - world - INFO - Added body 3515 (cylinder)
+2026-09-15 20:43:16,547 - scene - INFO - Spawned cylinder at [0.89266101 0.         0.85232565]
+2026-09-15 20:43:16,547 - scene - INFO - Selected body 3515
+2026-09-15 20:43:19,722 - scene - INFO - Selected body 1849
+2026-09-15 20:43:20,674 - scene - INFO - Selected body 1849
+2026-09-15 20:43:25,487 - scene - INFO - Selected body 1849
+2026-09-15 20:43:34,904 - scene - INFO - Selected body 1849
+2026-09-15 20:43:39,657 - scene - INFO - Selected body 1849
+2026-09-15 20:44:29,588 - world - INFO - Added body 3599 (cup)
+2026-09-15 20:44:29,588 - scene - INFO - Spawned cup at [-2.09270625e+00 -2.22044605e-16  1.93323631e+00]
+2026-09-15 20:44:29,590 - scene - INFO - Selected body 3599
+2026-09-15 20:44:35,335 - world - INFO - Added body 3736 (rocket)
+2026-09-15 20:44:35,335 - scene - INFO - Spawned rocket at [1.91244531 0.         0.52497657]
+2026-09-15 20:44:35,336 - scene - INFO - Selected body 3736
+2026-09-15 20:44:46,602 - world - INFO - Added body 4191 (dumbbell)
+2026-09-15 20:44:46,602 - scene - INFO - Spawned dumbbell at [6.87267010e-01 2.22044605e-16 5.76865973e-01]
+2026-09-15 20:44:46,603 - scene - INFO - Selected body 4191
+2026-09-15 20:44:57,134 - world - INFO - Added body 4706 (car)
+2026-09-15 20:44:57,134 - scene - INFO - Spawned car at [ 0.26075642  0.         -1.15660833]
+2026-09-15 20:44:57,135 - scene - INFO - Selected body 4706
+2026-09-15 20:45:09,969 - world - INFO - Added body 4958 (traffic_cone)
+2026-09-15 20:45:09,969 - scene - INFO - Spawned traffic_cone at [-0.16199239  0.         -0.22031036]
+2026-09-15 20:45:09,970 - scene - INFO - Selected body 4958
+2026-09-15 20:45:18,973 - world - INFO - Added body 5238 (boulder)
+2026-09-15 20:45:18,974 - scene - INFO - Spawned boulder at [ 5.88193295e-01 -1.11022302e-16  1.87233521e-01]
+2026-09-15 20:45:18,974 - scene - INFO - Selected body 5238
+2026-09-15 20:45:28,451 - world - INFO - Added body 5413 (plank)
+2026-09-15 20:45:28,451 - scene - INFO - Spawned plank at [-0.36435215  0.          0.22391861]
+2026-09-15 20:45:28,452 - scene - INFO - Selected body 5413
+2026-09-15 20:45:30,417 - world - INFO - Added body 5530 (plank)
+2026-09-15 20:45:30,417 - scene - INFO - Spawned plank at [-4.45481225e-01 -8.88178420e-16 -4.25205949e-01]
+2026-09-15 20:45:30,417 - scene - INFO - Selected body 5530
+2026-09-15 20:45:31,951 - world - INFO - Added body 5622 (plank)
+2026-09-15 20:45:31,951 - scene - INFO - Spawned plank at [-0.3785185   0.         -0.12206131]
+2026-09-15 20:45:31,951 - scene - INFO - Selected body 5622
+2026-09-15 20:45:32,952 - world - INFO - Added body 5681 (plank)
+2026-09-15 20:45:32,952 - scene - INFO - Spawned plank at [-0.39044866  0.         -0.65118937]
+2026-09-15 20:45:32,952 - scene - INFO - Selected body 5681
+2026-09-15 20:45:33,601 - world - INFO - Added body 5717 (plank)
+2026-09-15 20:45:33,602 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:33,602 - scene - INFO - Selected body 5717
+2026-09-15 20:45:33,751 - world - INFO - Added body 5727 (plank)
+2026-09-15 20:45:33,752 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:33,752 - scene - INFO - Selected body 5727
+2026-09-15 20:45:33,917 - world - INFO - Added body 5735 (plank)
+2026-09-15 20:45:33,918 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:33,918 - scene - INFO - Selected body 5735
+2026-09-15 20:45:34,052 - world - INFO - Added body 5743 (plank)
+2026-09-15 20:45:34,052 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:34,053 - scene - INFO - Selected body 5743
+2026-09-15 20:45:34,236 - world - INFO - Added body 5751 (plank)
+2026-09-15 20:45:34,236 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:34,236 - scene - INFO - Selected body 5751
+2026-09-15 20:45:34,418 - world - INFO - Added body 5762 (plank)
+2026-09-15 20:45:34,419 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:34,419 - scene - INFO - Selected body 5762
+2026-09-15 20:45:34,587 - world - INFO - Added body 5769 (plank)
+2026-09-15 20:45:34,587 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:34,588 - scene - INFO - Selected body 5769
+2026-09-15 20:45:34,738 - world - INFO - Added body 5775 (plank)
+2026-09-15 20:45:34,738 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:34,738 - scene - INFO - Selected body 5775
+2026-09-15 20:45:34,933 - world - INFO - Added body 5783 (plank)
+2026-09-15 20:45:34,934 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:34,934 - scene - INFO - Selected body 5783
+2026-09-15 20:45:35,091 - world - INFO - Added body 5789 (plank)
+2026-09-15 20:45:35,091 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:35,091 - scene - INFO - Selected body 5789
+2026-09-15 20:45:35,245 - world - INFO - Added body 5795 (plank)
+2026-09-15 20:45:35,245 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:35,245 - scene - INFO - Selected body 5795
+2026-09-15 20:45:35,390 - world - INFO - Added body 5800 (plank)
+2026-09-15 20:45:35,391 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:35,391 - scene - INFO - Selected body 5800
+2026-09-15 20:45:35,593 - world - INFO - Added body 5807 (plank)
+2026-09-15 20:45:35,594 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:35,594 - scene - INFO - Selected body 5807
+2026-09-15 20:45:35,765 - world - INFO - Added body 5813 (plank)
+2026-09-15 20:45:35,765 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:35,765 - scene - INFO - Selected body 5813
+2026-09-15 20:45:35,906 - world - INFO - Added body 5818 (plank)
+2026-09-15 20:45:35,907 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:35,907 - scene - INFO - Selected body 5818
+2026-09-15 20:45:36,083 - world - INFO - Added body 5823 (plank)
+2026-09-15 20:45:36,083 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:36,083 - scene - INFO - Selected body 5823
+2026-09-15 20:45:36,244 - world - INFO - Added body 5829 (plank)
+2026-09-15 20:45:36,244 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:36,245 - scene - INFO - Selected body 5829
+2026-09-15 20:45:36,423 - world - INFO - Added body 5834 (plank)
+2026-09-15 20:45:36,424 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:36,424 - scene - INFO - Selected body 5834
+2026-09-15 20:45:36,631 - world - INFO - Added body 5838 (plank)
+2026-09-15 20:45:36,631 - scene - INFO - Spawned plank at [-0.41188469  0.         -0.80651684]
+2026-09-15 20:45:36,631 - scene - INFO - Selected body 5838
+2026-09-15 20:45:38,875 - world - INFO - Added body 5906 (plank)
+2026-09-15 20:45:38,875 - scene - INFO - Spawned plank at [-0.49280052  0.         -0.18616553]
+2026-09-15 20:45:38,876 - scene - INFO - Selected body 5906
+2026-09-15 20:45:38,999 - world - INFO - Added body 5911 (plank)
+2026-09-15 20:45:39,000 - scene - INFO - Spawned plank at [-0.49280052  0.         -0.18616553]
+2026-09-15 20:45:39,000 - scene - INFO - Selected body 5911
+2026-09-15 20:45:39,215 - world - INFO - Added body 5918 (plank)
+2026-09-15 20:45:39,215 - scene - INFO - Spawned plank at [-0.49280052  0.         -0.18616553]
+2026-09-15 20:45:39,216 - scene - INFO - Selected body 5918
+2026-09-15 20:45:39,361 - world - INFO - Added body 5923 (plank)
+2026-09-15 20:45:39,361 - scene - INFO - Spawned plank at [-0.49280052  0.         -0.18616553]
+2026-09-15 20:45:39,362 - scene - INFO - Selected body 5923
+2026-09-15 20:45:39,533 - world - INFO - Added body 5927 (plank)
+2026-09-15 20:45:39,534 - scene - INFO - Spawned plank at [-0.49280052  0.         -0.18616553]
+2026-09-15 20:45:39,534 - scene - INFO - Selected body 5927
+2026-09-15 20:45:39,728 - world - INFO - Added body 5932 (plank)
+2026-09-15 20:45:39,729 - scene - INFO - Spawned plank at [-0.49280052  0.         -0.18616553]
+2026-09-15 20:45:39,729 - scene - INFO - Selected body 5932
+2026-09-15 20:45:39,872 - world - INFO - Added body 5935 (plank)
+2026-09-15 20:45:39,872 - scene - INFO - Spawned plank at [-0.49280052  0.         -0.18616553]
+2026-09-15 20:45:39,873 - scene - INFO - Selected body 5935
+2026-09-15 20:45:40,070 - world - INFO - Added body 5939 (plank)
+2026-09-15 20:45:40,071 - scene - INFO - Spawned plank at [-0.49280052  0.         -0.18616553]
+2026-09-15 20:45:40,071 - scene - INFO - Selected body 5939
+2026-09-15 20:45:48,781 - world - INFO - Added body 6327 (barrel)
+2026-09-15 20:45:48,781 - scene - INFO - Spawned barrel at [-0.92763982  0.         -0.31763372]
+2026-09-15 20:45:48,782 - scene - INFO - Selected body 6327
+2026-09-15 20:45:58,885 - world - INFO - Added body 6793 (box)
+2026-09-15 20:45:58,885 - scene - INFO - Spawned box at [-0.83224152  0.          1.77869336]
+2026-09-15 20:45:58,885 - scene - INFO - Selected body 6793
+2026-09-15 20:46:10,351 - scene - INFO - Selected body 6793
+2026-09-15 20:46:15,001 - scene - INFO - Selected body 6793
+2026-09-15 20:46:16,751 - scene - INFO - Selected body 6793
+2026-09-15 20:46:26,151 - scene - INFO - Selected body 6793
+2026-09-15 20:46:28,370 - scene - INFO - Selected body 6793
+2026-09-15 20:47:32,171 - world - INFO - Added body 7294 (sphere)
+2026-09-15 20:47:32,171 - scene - INFO - Spawned sphere at [-1.03470728  0.         -0.63957019]
+2026-09-15 20:47:32,172 - scene - INFO - Selected body 7294

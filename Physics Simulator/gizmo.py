@@ -66,7 +66,7 @@ class TransformGizmo:
             return offset
         elif body.shape in ("cylinder", "cone"):
             r = body.get_scaled_radius()
-            h = body.shape_params.get("height", 1.0) * body.scale
+            h = body.shape_params.get("height", 1.0) * float(np.max(body.scale))
             world_axis = self._axis_world(body.orientation, axis_index)
             # Cylinder axis is typically Y
             cyl_axis = quat_rotate_vector(body.orientation, vec3(0, 1, 0))
@@ -88,7 +88,7 @@ class TransformGizmo:
         position = body.position
         orientation = body.orientation
         radius = self._object_radius(body)
-        arrow_length = self.axis_length * max(0.75, body.scale)
+        arrow_length = self.axis_length * max(0.75, float(np.max(body.scale)))
         glPushAttrib(GL_ENABLE_BIT | GL_LINE_BIT | GL_CURRENT_BIT | GL_LIGHTING_BIT)
         try:
             glDisable(GL_LIGHTING)
@@ -162,7 +162,7 @@ class TransformGizmo:
         position = body.position
         orientation = body.orientation
         radius = self._object_radius(body)
-        arrow_length = self.axis_length * max(0.75, body.scale)
+        arrow_length = self.axis_length * max(0.75, float(np.max(body.scale)))
         best_t = float("inf")
         best_handle = None
         best_hit = None
@@ -177,7 +177,8 @@ class TransformGizmo:
                 # visible tip and the pick point could be ~0.3 units apart).
                 start_offset = self._arrow_start_offset(body, i)
                 tip = position + axis * (start_offset + arrow_length)
-                t = ray_sphere_intersect(ray_origin, ray_dir, tip, self.hit_radius * max(1.0, body.scale))
+                t = ray_sphere_intersect(ray_origin, ray_dir, tip,
+                                         self.hit_radius * max(1.0, float(np.max(body.scale))))
                 if t is not None and t < best_t:
                     best_t = t
                     best_handle = ("translate", i)

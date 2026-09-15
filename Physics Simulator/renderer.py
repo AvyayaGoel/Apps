@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Optional
 
 import numpy as np
 from OpenGL.GL import *
@@ -18,6 +19,7 @@ from camera import OrbitCamera
 from config import SimulationConfig
 from constraints import HingeConstraint, RopeConstraint, SpringConstraint
 from gizmo import TransformGizmo
+from gpu_renderer import GPUMeshRenderer, perspective, look_at
 from math_utils import quat_to_matrix4, quat_from_axis_angle, quat_rotate_vector, normalize
 from scene import Scene
 from scenery import SceneryManager
@@ -35,6 +37,15 @@ class Renderer:
         self.terrain = Terrain(config)
         self.scenery = SceneryManager(config)
         self.gizmo = TransformGizmo()
+        # ModernGL GPU pipeline for body geometry (see gpu_renderer.py).
+        # Created lazily in init_gl, once Qt has made a real GL context
+        # current - constructing it here would attach to no context (or
+        # the wrong one). Stays None if moderngl or a suitable context
+        # isn't available, in which case body drawing transparently falls
+        # back to the legacy display-list path, so the app still runs.
+        self.gpu: Optional[GPUMeshRenderer] = None
+        self._gpu_failed = False
+        self._viewport = (1, 1)
 
     def init_gl(self) -> None:
         glEnable(GL_DEPTH_TEST)
@@ -47,9 +58,30 @@ class Renderer:
         glEnable(GL_NORMALIZE)
         glShadeModel(GL_SMOOTH)
         glClearColor(0.5, 0.7, 0.9, 1.0)
+        self._init_gpu_renderer()
+
+    def _init_gpu_renderer(self) -> None:
+        """Attach a ModernGL context to the one Qt has already created and
+        made current. Any failure here is non-fatal: `self.gpu` stays None
+        and `_draw_bodies` uses the legacy path instead, so a machine
+        without a modern-enough driver still gets a working (if slower)
+        renderer rather than a black window."""
+        if self._gpu_failed or self.gpu is not None:
+            return
+        if not getattr(self.config, "use_gpu_renderer", False):
+            self._gpu_failed = True
+            return
+        try:
+            self.gpu = GPUMeshRenderer()
+            logger.info("ModernGL body renderer active")
+        except Exception:
+            self._gpu_failed = True
+            self.gpu = None
+            logger.exception("ModernGL unavailable - falling back to legacy display lists")
 
     def resize(self, width: int, height: int) -> None:
         height = max(1, height)
+        self._viewport = (width, height)
         glViewport(0, 0, width, height)
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
@@ -91,7 +123,7 @@ class Renderer:
         self._draw_bodies(scene, camera)
         self._draw_force_objects(scene, camera)
         self._draw_constraints(scene)
-        
+
         # Draw placement ghost if in placement mode
         self._draw_placement_ghost(scene)
 
@@ -247,25 +279,27 @@ class Renderer:
         return cos_angle > (half_fov_slack - margin)
 
     def _draw_bodies(self, scene: Scene, camera: OrbitCamera) -> None:
-        for body in scene.world.bodies:
-            if not self._is_visible(body, camera):
-                continue
-            glPushMatrix()
-            try:
-                list_id = meshes.get_display_list(body.shape, body.shape_params, body.object_kind, body.scale)
-                glTranslatef(*body.position)
-                glMultMatrixf(quat_to_matrix4(body.orientation))
-                glColor3f(*body.color)
-                glCallList(list_id)
-            except Exception:
-                logger.exception(f"Failed to draw body {body.id} (kind={body.object_kind!r})")
-            finally:
-                # glPopMatrix must run no matter what, or a failure here
-                # leaves the matrix stack permanently imbalanced - which
-                # would corrupt every other body's rendering for the rest
-                # of the session, not just this one's.
-                glPopMatrix()
+        visible = [b for b in scene.world.bodies if self._is_visible(b, camera)]
 
+        if self.gpu is not None:
+            try:
+                self._draw_bodies_gpu(visible, camera)
+            except Exception:
+                # A GPU-path failure must not take the whole frame down -
+                # disable it for the rest of the session and continue with
+                # the legacy path, so the user gets a working renderer
+                # instead of an unusable window.
+                logger.exception("ModernGL body drawing failed - reverting to legacy path")
+                self.gpu = None
+                self._gpu_failed = True
+                self._draw_bodies_legacy(visible)
+        else:
+            self._draw_bodies_legacy(visible)
+
+        # Selection decorations (gizmo / highlight) still use the legacy
+        # immediate-mode path; they're a handful of lines and wires, not
+        # the per-frame geometry cost the GPU pipeline exists to solve.
+        for body in visible:
             if body is scene.selected_body:
                 if self.gizmo and scene.selected_body:
                     body = scene.selected_body
@@ -283,6 +317,57 @@ class Renderer:
                         logger.exception(f"Failed to draw gizmo for body {body.id}")
             elif body is scene.secondary_selected_body:
                 self._draw_secondary_selection_highlight(body.position, body.bounding_radius())
+
+    def _draw_bodies_gpu(self, bodies, camera: OrbitCamera) -> None:
+        """Draw every body through the ModernGL pipeline: one cached
+        vertex/index buffer per distinct mesh, one draw call per body,
+        with position/orientation/scale/color supplied as uniforms."""
+        width, height = self._viewport
+        proj = perspective(self.config.camera_fov_deg, width / max(1, height),
+                           self.config.camera_near, self.config.camera_far)
+        view = look_at(camera.position(), camera.look_at_point(), camera.up())
+        self.gpu.set_camera(proj, view)
+
+        # The legacy fixed-function state (lighting, color material, the
+        # matrix stacks) doesn't apply to shader-based drawing, and leaving
+        # GL_LIGHTING enabled while a program is bound is harmless but
+        # pointless - what does matter is restoring whatever the
+        # immediate-mode passes around this one expect afterwards.
+        glDisable(GL_LIGHTING)
+        try:
+            for body in bodies:
+                mesh_obj = body.mesh
+                if mesh_obj is None or len(mesh_obj.faces) == 0:
+                    continue
+                self.gpu.draw(
+                    mesh_obj,
+                    body.position,
+                    body.get_rotation_matrix(),
+                    body.scale,
+                    body.color,
+                )
+        finally:
+            glEnable(GL_LIGHTING)
+
+    def _draw_bodies_legacy(self, bodies) -> None:
+        """Original immediate-mode/display-list drawing, kept as a fallback
+        for environments where ModernGL can't be initialized."""
+        for body in bodies:
+            glPushMatrix()
+            try:
+                list_id = meshes.get_display_list(body.shape, body.shape_params, body.object_kind, tuple(body.scale))
+                glTranslatef(*body.position)
+                glMultMatrixf(quat_to_matrix4(body.orientation))
+                glColor3f(*body.color)
+                glCallList(list_id)
+            except Exception:
+                logger.exception(f"Failed to draw body {body.id} (kind={body.object_kind!r})")
+            finally:
+                # glPopMatrix must run no matter what, or a failure here
+                # leaves the matrix stack permanently imbalanced - which
+                # would corrupt every other body's rendering for the rest
+                # of the session, not just this one's.
+                glPopMatrix()
 
     @staticmethod
     def _draw_secondary_selection_highlight(position: np.ndarray, radius: float) -> None:
@@ -368,26 +453,46 @@ class Renderer:
         kind = scene.place_object_kind or scene.last_placed_kind
         if kind is None:
             return
-        
+
         # Get shape info for the ghost
         try:
             obj_data = object_catalog.CATALOG.get(kind)
             if obj_data is None:
                 return
-            
+
             shape = obj_data.shape
             shape_params = obj_data.shape_params.copy()
-            scale = 0.7  # Ghost scale
-            
+            # Ghost must be the SAME size as the object that actually gets
+            # spawned (a previous version rendered it at an arbitrary 0.7x
+            # "preview" scale, silently different from the real object) -
+            # scale is otherwise always 1.0 at spawn time (set_scale is a
+            # post-placement edit), so match that directly.
+            scale = 1.0
+
+            # Ground placement for the ghost must use the exact same logic
+            # as the real spawn (Scene.place_at -> RigidBody.place_on_ground),
+            # not a separate approximation - otherwise the ghost and the
+            # actual placed object can disagree, and either (or both) can
+            # end up partially underground. Build a throwaway body purely to
+            # read its real, mesh-derived ground clearance; it is never
+            # added to the world.
+            ghost_body = object_catalog.spawn(kind, position=mouse_pos_3d)
+            ground_y = float(mouse_pos_3d[1])
+            draw_pos = (
+                float(mouse_pos_3d[0]),
+                ground_y + ghost_body.ground_clearance(),
+                float(mouse_pos_3d[2]),
+            )
+
             glPushMatrix()
             try:
                 glDisable(GL_LIGHTING)
                 glEnable(GL_BLEND)
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
                 glColor4f(0.3, 0.8, 0.3, 0.4)  # Semi-transparent green
-                
+
                 list_id = meshes.get_display_list(shape, shape_params, kind, scale)
-                glTranslatef(*mouse_pos_3d)
+                glTranslatef(*draw_pos)
                 glCallList(list_id)
                 
                 # Draw a small indicator ring on the ground

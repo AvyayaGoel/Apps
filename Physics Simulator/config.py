@@ -39,6 +39,15 @@ class SimulationConfig:
 
     # --- Rendering / performance -------------------------------------------
     target_fps: int = 60
+    # Opt-in ModernGL body rendering (gpu_renderer.py): uploads each mesh
+    # once into GPU vertex/index buffers and draws one call per object,
+    # instead of replaying display lists every frame. Off by default
+    # because it requires a 3.3 *compatibility* context, which some
+    # drivers refuse to grant (they return a core profile, where the
+    # still-fixed-function terrain/sky/gizmo passes cannot run at all).
+    # Turn this on if your driver supports it - the renderer falls back to
+    # the legacy path automatically if ModernGL fails to initialize.
+    use_gpu_renderer: bool = False
     frustum_culling_enabled: bool = True
     shadow_enabled: bool = True
     tree_count: int = 96

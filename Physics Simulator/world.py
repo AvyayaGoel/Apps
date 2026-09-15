@@ -95,9 +95,17 @@ class PhysicsWorld:
             resolve_ground_contact(body, self.ground_y, cfg.ground_friction, cfg.ground_restitution)
 
         # 4. Body-body collisions. Multiple solver passes improve resting contacts
-        # and stacking without adding fake placement rules.
+        # and stacking without adding fake placement rules. Broad phase is
+        # computed ONCE per substep, not once per solver iteration - the set
+        # of AABB-overlapping candidate pairs doesn't meaningfully change
+        # across a few Baumgarte-correction passes within a single substep,
+        # and broad_phase_pairs calls body.aabb() for every body (a full
+        # transformed-mesh-vertex computation for compound objects like the
+        # car/mug) - recomputing that 6x per substep for every body was a
+        # measurable, needless cost with many objects in the scene.
+        candidate_pairs = broad_phase_pairs(self.bodies)
         for _ in range(cfg.collision_solver_iterations):
-            for a, b in broad_phase_pairs(self.bodies):
+            for a, b in candidate_pairs:
                 resolve_pair(a, b)
 
         # 5. Constraints (position-based)

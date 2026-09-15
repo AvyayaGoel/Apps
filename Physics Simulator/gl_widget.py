@@ -13,7 +13,7 @@ from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 
 from body import RigidBody
 from camera import OrbitCamera
-from config import SimulationConfig
+from config import SimulationConfig, config as default_config
 from event_bus import bus
 from force_object import ForceObject
 from gizmo import TransformGizmo
@@ -30,8 +30,25 @@ def make_default_surface_format() -> QSurfaceFormat:
     fmt.setDepthBufferSize(24)
     fmt.setStencilBufferSize(8)
     fmt.setSamples(4)
+    # The terrain, sky, scenery, gizmo, constraint and overlay passes are
+    # still fixed-function (glBegin/glEnable(GL_LIGHTING)/matrix stacks),
+    # so the context MUST be a compatibility one. Requesting 3.3
+    # compatibility - which is what the ModernGL body renderer's
+    # `#version 330` shaders need - is not reliably honoured: some drivers
+    # (notably Mesa/llvmpipe, as used under Xvfb) hand back a core profile
+    # instead, where the very first glEnable(GL_LIGHTING) raises
+    # GL_INVALID_ENUM and the app dies before drawing anything.
+    #
+    # So the default stays at the known-good 2.1 compatibility profile,
+    # and the ModernGL path is opt-in via config.use_gpu_renderer. When
+    # enabled, this requests 3.3 compatibility and Renderer falls back to
+    # the legacy path if ModernGL can't initialize - see
+    # Renderer._init_gpu_renderer.
     fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CompatibilityProfile)
-    fmt.setVersion(2, 1)
+    if getattr(default_config, "use_gpu_renderer", False):
+        fmt.setVersion(3, 3)
+    else:
+        fmt.setVersion(2, 1)
     return fmt
 
 

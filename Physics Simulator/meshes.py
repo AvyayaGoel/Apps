@@ -5,14 +5,13 @@ rendering/meshes.py – improved composite objects.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
-import object_catalog
-from math_utils import normalize
+import mesh as mesh_module
 
 logger = logging.getLogger(__name__)
 _quadric = None
@@ -24,6 +23,53 @@ def _get_quadric():
         _quadric = gluNewQuadric()
         gluQuadricNormals(_quadric, GLU_SMOOTH)
     return _quadric
+
+
+def draw_generic_mesh(m: "mesh_module.Mesh") -> None:
+    """Draw an arbitrary mesh.Mesh (vertices/faces/normals) via immediate
+    mode GL_TRIANGLES. This is the bridge between the generic Mesh-based
+    geometry pipeline (mesh.py - used for physics/mass properties AND,
+    via this function, rendering) and the renderer: any object kind with
+    a "parts" recipe or a registered base primitive (see
+    mesh.get_mesh_by_kind) renders from the exact same vertex/face data
+    its physics is computed from, instead of a separate hand-written
+    drawing function that can silently drift out of sync with it (which
+    is precisely how several of the old geometry bugs happened - the car's
+    wheels, the mug's handle, the dumbbell's disconnected parts, the
+    pyramid's and torus's backface-culled gaps - two or three independent,
+    disagreeing implementations of "what this object looks like"). This is
+    still immediate-mode OpenGL, not the ModernGL/VBO pipeline called for
+    by the redesign - see the project notes for that follow-up work - but
+    it does mean there is now exactly one definition of each such
+    object's shape, not several.
+
+    If the mesh has per-vertex colors (see Mesh.colors - set when a
+    "parts" recipe gives an individual part its own "color", e.g. a car's
+    dark tires vs its red body), a vertex with a real (non-NaN) color gets
+    its own glColor3f before being emitted; a vertex with no override
+    (NaN) is left alone, so it just keeps whatever color was already
+    active (normally the object's single base color, set once by the
+    caller before this display list runs) - one recipe can freely mix
+    "most of this object uses the base color" with "these specific parts
+    are always this other color" without every single vertex needing an
+    explicit entry.
+    """
+    vertices = m.vertices
+    normals = m.normals if len(m.normals) == len(vertices) else None
+    has_colors = len(m.colors) == len(vertices) and len(vertices) > 0
+    glBegin(GL_TRIANGLES)
+    try:
+        for face in m.faces:
+            for idx in face:
+                if has_colors:
+                    c = m.colors[idx]
+                    if not np.isnan(c[0]):
+                        glColor3f(*c)
+                if normals is not None:
+                    glNormal3f(*normals[idx])
+                glVertex3f(*vertices[idx])
+    finally:
+        glEnd()
 
 
 # ----------------------------------------------------------------------
@@ -81,246 +127,44 @@ def draw_cone(radius: float = 0.5, height: float = 1.0, slices: int = 22) -> Non
     glPopMatrix()
 
 
-def draw_torus(radius: float = 0.5, tube_radius: float = 0.18, sides: int = 16, rings: int = 24) -> None:
-    import math
-    for i in range(rings):
-        theta1 = 2 * math.pi * i / rings
-        theta2 = 2 * math.pi * (i + 1) / rings
-        glBegin(GL_QUAD_STRIP)
-        for j in range(sides + 1):
-            phi = 2 * math.pi * j / sides
-            for theta in (theta1, theta2):
-                cx, cz = math.cos(theta), math.sin(theta)
-                nx = math.cos(phi) * cx
-                ny = math.sin(phi)
-                nz = math.cos(phi) * cz
-                x = (radius + tube_radius * math.cos(phi)) * cx
-                y = tube_radius * math.sin(phi)
-                z = (radius + tube_radius * math.cos(phi)) * cz
-                glNormal3f(nx, ny, nz)
-                glVertex3f(x, y, z)
-        glEnd()
-
-
-# ----------------------------------------------------------------------
-# Composite builders
-# ----------------------------------------------------------------------
-
-def _build_cup():
-    """A realistic cup: thin-walled cylinder, open top, with a handle."""
-    q = _get_quadric()
-    radius = 0.3
-    height = 0.5
-    thickness = 0.03
-    # Outer wall
-    glPushMatrix()
-    glTranslatef(0, -height * 0.5, 0)
-    glRotatef(-90, 1, 0, 0)
-    # Outer cylinder with top and bottom disks
-    gluCylinder(q, radius, radius, height, 24, 1)
-    # Bottom disk
-    glRotatef(180, 1, 0, 0)
-    gluDisk(q, 0, radius, 24, 1)
-    glPopMatrix()
-    # Inner wall (hollow) - draw inverted normals? We'll just draw a smaller cylinder with reversed normals.
-    glPushMatrix()
-    glTranslatef(0, -height * 0.5, 0)
-    glRotatef(90, 1, 0, 0)  # invert normals by rotating 180? Use gluQuadricOrientation
-    q_inner = gluNewQuadric()
-    gluQuadricOrientation(q_inner, GLU_INSIDE)
-    gluCylinder(q_inner, radius - thickness, radius - thickness, height, 24, 1)
-    # Bottom inner disk
-    glRotatef(180, 1, 0, 0)
-    gluDisk(q_inner, 0, radius - thickness, 24, 1)
-    gluDeleteQuadric(q_inner)
-    glPopMatrix()
-    # Rim (a torus at top)
-    glPushMatrix()
-    glTranslatef(0, height * 0.5, 0)
-    draw_torus(radius=radius - thickness * 0.5, tube_radius=thickness * 1.5, sides=8, rings=16)
-    glPopMatrix()
-    # Handle: a torus on the side
-    glPushMatrix()
-    glTranslatef(radius + 0.02, 0.0, 0.0)
-    glRotatef(90, 0, 1, 0)
-    draw_torus(radius=0.14, tube_radius=0.035, sides=8, rings=16)
-    glPopMatrix()
-
-
-def _build_car():
-    # Car body
-    draw_box(half_extents=(0.8, 0.3, 0.45))
-    # Cabin
-    glPushMatrix()
-    glTranslatef(-0.1, 0.32, 0)
-    draw_box(half_extents=(0.35, 0.22, 0.38))
-    glPopMatrix()
-    # Wheels - larger and protruding below body
-    glColor3f(0.08, 0.08, 0.08)
-    wheel_positions = [
-        (-0.55, -0.28, 0.52),  # front-left
-        (0.55, -0.28, 0.52),  # front-right
-        (-0.55, -0.28, -0.52),  # rear-left
-        (0.55, -0.28, -0.52)  # rear-right
-    ]
-    for wx, wy, wz in wheel_positions:
-        glPushMatrix()
-        glTranslatef(wx, wy, wz)
-        glRotatef(90, 0, 1, 0)
-        draw_cylinder(radius=0.22, height=0.15, slices=16)
-        glPopMatrix()
-
-
-def _build_ramp():
-    hx, hy, hz = 1.2, 0.15, 1.6
-    glBegin(GL_TRIANGLES)
-    glNormal3f(0, 0.5, -0.87)
-    top_back = (-hx, hy, -hz)
-    top_front_low = (-hx, -hy, hz)
-    top_front_low2 = (hx, -hy, hz)
-    top_back2 = (hx, hy, -hz)
-    for tri in ((top_back, top_front_low, top_front_low2), (top_back, top_front_low2, top_back2)):
-        for v in tri:
-            glVertex3f(*v)
-    glEnd()
-    glBegin(GL_QUADS)
-    glNormal3f(0, -1, 0)
-    glVertex3f(-hx, -hy, -hz)
-    glVertex3f(hx, -hy, -hz)
-    glVertex3f(hx, -hy, hz)
-    glVertex3f(-hx, -hy, hz)
-    glNormal3f(0, 0, -1)
-    glVertex3f(-hx, -hy, -hz)
-    glVertex3f(-hx, hy, -hz)
-    glVertex3f(hx, hy, -hz)
-    glVertex3f(hx, -hy, -hz)
-    glEnd()
-    glBegin(GL_TRIANGLES)
-    glNormal3f(-1, 0, 0)
-    glVertex3f(-hx, -hy, -hz)
-    glVertex3f(-hx, -hy, hz)
-    glVertex3f(-hx, hy, -hz)
-    glNormal3f(1, 0, 0)
-    glVertex3f(hx, -hy, -hz)
-    glVertex3f(hx, hy, -hz)
-    glVertex3f(hx, -hy, hz)
-    glEnd()
-
-
-def _build_pyramid():
-    # A four-sided pyramid (square base)
-    half = 0.5
-    height = 1.0
-    # base vertices
-    base = [(-half, -height / 2, -half), (half, -height / 2, -half), (half, -height / 2, half),
-            (-half, -height / 2, half)]
-    apex = (0, height / 2, 0)
-    # draw 4 triangles for sides
-    glBegin(GL_TRIANGLES)
-    for i in range(4):
-        p1 = base[i]
-        p2 = base[(i + 1) % 4]
-        # compute normal
-        edge1 = np.array(p2) - np.array(p1)
-        edge2 = np.array(apex) - np.array(p1)
-        normal = normalize(np.cross(edge1, edge2))
-        glNormal3f(*normal)
-        glVertex3f(*p1)
-        glVertex3f(*p2)
-        glVertex3f(*apex)
-    glEnd()
-
-    # bottom face
-    glBegin(GL_QUADS)
-    glNormal3f(0, -1, 0)
-    for v in reversed(base):
-        glVertex3f(*v)
-    glEnd()
-
-
-def _build_from_parts(parts: list) -> None:
-    """Draw a compound mesh described as data: a list of parts, each a
-    primitive shape (box/sphere/cylinder/cone/torus) with an optional
-    offset, rotation, non-uniform scale, and color override. This is what
-    lets new objects (and, eventually, user-created ones) be added as a
-    JSON entry instead of a new Python function - every part still goes
-    through the same draw_box/draw_cylinder/draw_cone/draw_sphere/draw_torus
-    helpers already proven safe elsewhere in this file, so this adds no new
-    raw OpenGL calls of its own."""
-    for part in parts:
-        glPushMatrix()
-        try:
-            offset = part.get("offset", (0.0, 0.0, 0.0))
-            glTranslatef(*offset)
-            rot = part.get("rotation_deg")
-            if rot:
-                rx, ry, rz = rot
-                if rx:
-                    glRotatef(rx, 1, 0, 0)
-                if ry:
-                    glRotatef(ry, 0, 1, 0)
-                if rz:
-                    glRotatef(rz, 0, 0, 1)
-            part_scale = part.get("scale")
-            if part_scale:
-                glScalef(*part_scale)
-            color = part.get("color")
-            if color:
-                glColor3f(*color)
-            shape = part.get("shape")
-            if shape == "box":
-                draw_box(half_extents=tuple(part.get("half_extents", (0.4, 0.4, 0.4))))
-            elif shape == "sphere":
-                draw_sphere(radius=part.get("radius", 0.5))
-            elif shape == "cylinder":
-                draw_cylinder(radius=part.get("radius", 0.4), height=part.get("height", 0.9))
-            elif shape == "cone":
-                draw_cone(radius=part.get("radius", 0.5), height=part.get("height", 1.0))
-            elif shape == "torus":
-                draw_torus(radius=part.get("radius", 0.5), tube_radius=part.get("tube_radius", 0.18),
-                           sides=part.get("sides", 16), rings=part.get("rings", 24))
-            else:
-                logger.warning(f"Unknown part shape {shape!r} - skipping this part")
-        finally:
-            glPopMatrix()
-
-
-KIND_BUILDERS: Dict[str, Callable[..., None]] = {
-    "cup": _build_cup,
-    "car": _build_car,
-    "ramp": _build_ramp,
-    "force": lambda: draw_force_arrow(),
-    "pyramid": _build_pyramid,
-}
-
 _display_list_cache: Dict[Tuple, int] = {}
 
 
-def _build_shape_geometry(shape: str, shape_params: dict, object_kind: str, scale: float) -> None:
+def _build_shape_geometry(shape: str, shape_params: dict, object_kind: str, scale) -> None:
     glPushMatrix()
     try:
-        glScalef(scale, scale, scale)
-        try:
-            parts = object_catalog.get_parts(object_kind)
-            if parts:
-                _build_from_parts(parts)
-                return
-            legacy_name = object_catalog.get_legacy_mesh(object_kind)
-            if legacy_name is not None:
-                builder = KIND_BUILDERS.get(legacy_name)
-                if builder is not None:
-                    builder()
-                    return
-        except ImportError as e:
-            logger.exception(e)
+        if isinstance(scale, (int, float)):
+            glScalef(scale, scale, scale)
+        else:
+            sx, sy, sz = scale
+            glScalef(sx, sy, sz)
 
-        builder = KIND_BUILDERS.get(object_kind)
-        if builder is not None:
-            builder()
+        # Generic path first: covers EVERY object with a "parts" recipe in
+        # data/objects.json (car, cup, rocket, pyramid, well, dumbbell,
+        # table, chair, stairs, ...) and every kind registered directly in
+        # mesh.py's registry (torus, and the bare primitives), all through
+        # the exact same, validated (see tests/test_mesh.py and
+        # tests/test_parts_pipeline.py) mesh.py pipeline used for physics.
+        # This is what replaced the old per-object immediate-mode
+        # functions (_build_car, _build_cup, _build_pyramid, and the
+        # separate _build_from_parts interpreter) - one geometry
+        # definition per object, not a Python rendering path AND a
+        # separate physics path that can silently drift apart (which is
+        # exactly how several of the reported rendering bugs - the car's
+        # wheels, the mug's handle, the dumbbell's disconnected parts, the
+        # pyramid's and torus's backface-culled gaps - happened in the
+        # first place).
+        m = mesh_module.get_mesh_by_kind(object_kind)
+        if m is not None:
+            draw_generic_mesh(m)
             return
-        if object_kind == "torus":
-            draw_torus(shape_params.get("radius", 0.5), shape_params.get("tube_radius", 0.18))
-        elif shape == "sphere":
+
+        # No registered/parts-based geometry for this kind - it's a bare
+        # primitive (e.g. "cube", "ball", "wall": a plain box/sphere with
+        # its own shape_params, not worth routing through the mesh
+        # pipeline for). Draw it directly via the simple GLU-based
+        # primitive functions.
+        if shape == "sphere":
             draw_sphere(shape_params.get("radius", 0.5))
         elif shape == "box":
             draw_box(shape_params.get("half_extents", (0.4, 0.4, 0.4)))
@@ -359,9 +203,10 @@ def _make_hashable(value):
         return value
 
 
-def get_display_list(shape: str, shape_params: dict, object_kind: str, scale: float = 1.0) -> int:
+def get_display_list(shape: str, shape_params: dict, object_kind: str, scale=1.0) -> int:
     hashable_params = tuple(sorted((k, _make_hashable(v)) for k, v in shape_params.items()))
-    key = (object_kind, shape, hashable_params, scale)
+    hashable_scale = _make_hashable(list(scale)) if not isinstance(scale, (int, float)) else scale
+    key = (object_kind, shape, hashable_params, hashable_scale)
     list_id = _display_list_cache.get(key)
     if list_id is not None:
         return list_id
